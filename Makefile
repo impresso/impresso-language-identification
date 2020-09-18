@@ -54,14 +54,14 @@ endif
 impresso-lid-stage1-target : $(impresso-lid-stage1-files)
 
 $(LID-BUILD-DIR)/stage1/%.jsonl.bz2: $(IMPRESSO-REBUILT-DATA-DIR)/%.jsonl.bz2
-	if test -e $@.running ; then { echo "Already building $@ " && exit 0 ; } ; else  echo "Building $@ now..."  ; fi  \
+	if test -e $@.running ; then { echo "Already building $@ " && exit 0 ; } ; else  { touch $@.running  ; echo "Building $@ now..." ; }  ; fi  \
 	&& mkdir -p $(@D) \
 	&& python lib/language_identification.py \
 	   --impresso_ft $(IMPPRESSO-FASTTEXT-MODEL) \
 	   --wp_ft $(WIKIPEDIA-FASTTEXT-MODEL) \
 	   -i $< -o $@.working.jsonl.bz2  &> >(tee $@.log >&2)  \
 	&& mv $@.working.jsonl.bz2 $@ \
-	&& rm -fv $@.running 
+	&& rm -fv $@.running $@.working.jsonl.bz2
 
 
 
