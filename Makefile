@@ -23,12 +23,14 @@ DEBUG ?= 0
 # only read access is needed
 IMPRESSO-REBUILT-DATA-DIR ?= rebuilt-data
 
-# make sure that this directory points to a local copy of the impresso s3 data
-# write access is needed
-LID-BUILD-DIR ?= build
-
 # Language identification version
 LID-VERSION ?= v1.1
+
+
+
+# write access is needed
+LID-BUILD-DIR ?= build/$(LID-VERSION)
+
 
 # fast text models
 
