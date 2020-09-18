@@ -10,6 +10,7 @@ jsonlines = "*"
 langid = "*"
 langdetect = "*"
 fasttext = "*"
+smart-open = "*"
 
 [requires]
 python_version = "3.7"
