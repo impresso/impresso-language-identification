@@ -63,7 +63,7 @@ $(LID-BUILD-DIR)/stage1/%.jsonl.bz2: $(IMPRESSO-REBUILT-DATA-DIR)/%.jsonl.bz2
 	   --wp_ft $(WIKIPEDIA-FASTTEXT-MODEL) \
 	   -i $< -o $@.working.jsonl.bz2  &> >(tee $@.log >&2)  \
 	&& mv $@.working.jsonl.bz2 $@ \
-	&& rm -fv $@.running $@.working.jsonl.bz2
+	&& rm -fv  $@.working.jsonl.bz2
 
 
 
