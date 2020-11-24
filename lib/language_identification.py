@@ -2,20 +2,18 @@
 # -*- coding: utf-8 -*-
 
 import logging
-log = logging.getLogger(__name__)
-import sys
-import jsonlines
-from smart_open import open
 import re
-
-from langid.langid import LanguageIdentifier, model
-
-import langdetect
-from langdetect.lang_detect_exception import LangDetectException
+import sys
+from collections import Counter
 
 import fasttext
+import jsonlines
+import langdetect
+from langdetect.lang_detect_exception import LangDetectException
+from langid.langid import LanguageIdentifier, model
+from smart_open import open
 
-from collections import Counter
+log = logging.getLogger(__name__)
 
 
 def average_distribution(listoflist):
@@ -30,7 +28,7 @@ def average_distribution(listoflist):
             counter[r.lang] += r.prob
     for k in counter:
         counter[k] = counter[k] / total
-    result = [{"lang": k, "prob": round(counter[k],2)} for k in counter]
+    result = [{"lang": k, "prob": round(counter[k], 2)} for k in counter]
     log.debug(f"DEBUG-LANGDETECT-DIVERSITY {len(listoflist)} {listoflist}")
     return result
 
@@ -44,7 +42,7 @@ def alphabetical_ratio(text):
     if len_text == 0:
         return None
     filtered = re.sub(r'[\W_\d]+', '', text)
-    #log.debug(f"FILTERED-TEXT {filtered}")
+    # log.debug(f"FILTERED-TEXT {filtered}")
     return len(filtered) / len_text
 
 
@@ -62,7 +60,6 @@ class MainApplication(object):
         self.language_identification()
         self.output()
 
-
     def language_identification(self):
         """
         Run language identification with available models and update results
@@ -72,9 +69,9 @@ class MainApplication(object):
 
         # langid lid classifier
         langid_lid = LanguageIdentifier.from_modelstring(model, norm_probs=True)
+
         # we no longer restrict it to certain languages
         # langid_lid.set_languages(['de', 'fr', 'en', 'lb'])
-
 
         # langdetect lid classifier using n samples from a text
 
@@ -123,16 +120,19 @@ class MainApplication(object):
         # apply all models
         for j in self.next_contentitem():
             log.info(f"WORKING ON {j['id']}")
+            jinfo = {}
             try:
                 # initialize information
-                jinfo = {
-                    "tp": j["tp"],
-                    "cid": j["id"],
-                    "len": len(j["ft"]) if "ft" in j and type(j["ft"]) == str else 0,
-                    "orig_lg": j["lg"] if "lg" in j else None
-                }
+                jinfo.update(
+                    {
+                        "tp": j["tp"],
+                        "cid": j["id"],
+                        "len": len(j["ft"]) if "ft" in j and type(j["ft"]) == str else 0,
+                        "orig_lg": j["lg"] if "lg" in j else None
+                    }
+                )
 
-                if "ft" in j and type(j["ft"]) == str and len(j["ft"].strip()) > 20:
+                if "ft" in j and type(j["ft"]) == str and len(j["ft"].strip()) >= self.args.minimal_text_length:
                     jinfo["alphabetical_ratio"] = round(alphabetical_ratio(j["ft"]), 2)
 
                     # langdetect
@@ -155,7 +155,7 @@ class MainApplication(object):
                     # fasttext with our own de/fr/lb model
                     if impresso_ft_model is not None:
                         try:
-                            jinfo["impresso_ft"] = fasttext_lid(j["ft"],impresso_ft_model)
+                            jinfo["impresso_ft"] = fasttext_lid(j["ft"], impresso_ft_model)
                         except:
                             jinfo["impresso_ft"] = None
                             log.error(f"IMPRESSO-FT-ERROR-WITH {sys.exc_info()[0]}")
@@ -163,7 +163,7 @@ class MainApplication(object):
                         jinfo["impresso_ft"] = None
                     if wp_ft_model is not None:
                         try:
-                            jinfo["wp_ft"] = fasttext_lid(j["ft"],wp_ft_model)
+                            jinfo["wp_ft"] = fasttext_lid(j["ft"], wp_ft_model)
                         except:
                             jinfo["wp_ft"] = None
                             log.error(f"WP-FT-ERROR-WITH {sys.exc_info()[0]}")
@@ -209,13 +209,14 @@ if __name__ == '__main__':
                         help="path to input file in impresso bz2 rebuilt format")
     parser.add_argument('-o', '--output-file', default="/dev/stdout",
                         help="path to output file for impresso lid json format")
+    parser.add_argument('-m', '--minimal-text-length', default=20, type=int,
+                        help="minimal text length of content items to apply automatic landuage identification (default %(default)s)")
     parser.add_argument('-j', '--json-log-file', default=None,
                         help="Most important statistics and output collected in a structured JSON file")
     parser.add_argument('--impresso_ft', default=None, help="Binary fasttext LID impresso model labeled impresso_ft "
                                                             "in the output", metavar="FILE")
     parser.add_argument('--wp_ft', default=None, help="Binary fasttext wikipedia LID model labeled wp_ft in the "
                                                       "output ", metavar="FT2")
-
 
     args = parser.parse_args()
 
