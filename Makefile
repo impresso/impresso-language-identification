@@ -9,8 +9,24 @@
 
 SHELL := /bin/bash
 export SHELLOPTS := errexit:pipefail
-
 .SECONDARY:
+
+# generally export all variables to sub-make calls (needed in this Makefile)
+# The targets of stage 1a need the targets of stage 1b to exist
+#export
+
+# Note: use this target only on a single build machine
+# If you run the commands on several machines on the same collection each stage has to be finished on all machines
+# before moving to the next stage
+impresso-lid:
+	# INFO: Recursively making  impresso-lid-stage1a-target
+	$(MAKE) $(MAKEFILEFLAG) -f $(firstword $(MAKEFILE_LIST))  impresso-lid-stage1a-target
+	# INFO: Recursively making  impresso-lid-stage1b-target
+	$(MAKE) $(MAKEFILEFLAG) -f $(firstword $(MAKEFILE_LIST))  impresso-lid-stage1b-target
+	# INFO: Recursively making  impresso-lid-stage2-target
+	$(MAKE) $(MAKEFILEFLAG) -f $(firstword $(MAKEFILE_LIST))  impresso-lid-stage2-target
+
+include lib/debug.mk
 
 # emit additional diagnostics while building
 DEBUG ?= 0
@@ -18,11 +34,11 @@ DEBUG ?= 0
 # additionally print diagnostic output on terminal in debug mode
 
 ifeq ($(DEBUG),1)
-TARGET-LOG-MACRO = 2> >(tee $$@.log 1>&2)
-# if you want to tee and redirect stdout and stderr, you need to write 1>2& AFTER the macro in a rule.
+TARGET_LOG_MACRO = 2> >(tee $$@.log 1>&2)
+# if you want to tee and redirect stdout AND stderr, you need to write 1>2& AFTER the macro in a rule.
 # Remember that the order of redirections matters! https://stackoverflow.com/q/17975232
 else
-TARGET-LOG-MACRO = 2> $$@.log
+TARGET_LOG_MACRO = 2> $$@.log
 endif
 
 ########################################################################################## 
@@ -49,18 +65,14 @@ WIKIPEDIA_FASTTEXT_MODEL ?= models/fasttext/lid.176.bin
 # minimal text length threshold for automatic LID in stage 1
 MINIMAL_TEXT_LENGTH ?= 20
 
-#CANONICAL_DIR:=/srv/scratch2/climpresso/s3data/canonical-rebuilt-release
+#
 OUTPUT_DIR ?= $(LID_BUILD_DIR)/language_identification/$(LID_VERSION)
 
 # all known collection acronyms from the file system
 COLLECTION_ACRONYMS ?= $(notdir $(wildcard $(IMPRESSO_REBUILT_DATA_DIR)/*))
 
-ifeq ($(DEBUG),1)
-$(info )
-$(info VARIABLE collection-accronyms:)
-$(info $(collection-accronyms))
-$(info )
-endif
+# emit content of make variable if $(DEBUG) is set to 1
+$(eval $(call debug_variable,COLLECTION_ACRONYMS))
 
 # get path of all impresso rebuilt files
 impresso-rebuilt-files := \
@@ -74,23 +86,18 @@ impresso-rebuilt-files := \
 ########################################################################################################################
 # stage 1a: apply lid classification to all content items
 
-impresso-lid-stage1-files := $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_DIR)/stage1,$(impresso-rebuilt-files))
+impresso-lid-stage1a-files := $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_DIR)/stage1,$(impresso-rebuilt-files))
 
-ifeq ($(DEBUG),1)
-$(info )
-$(info VARIABLE impresso-lid-stage1-files)
-$(info $(impresso-lid-stage1-files))
-$(info )
-endif
+$(eval $(call debug_variable,impresso-lid-stage1a-files))
 
-impresso-lid-stage1a-target: $(impresso-lid-stage1-files)
+impresso-lid-stage1a-target: $(impresso-lid-stage1a-files)
 
 
-$(LID_BUILD_DIR)/stage1/%.jsonl.bz2: IMPRESSO_REBUILT_DATA_DIR/%.jsonl.bz2
+$(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
 	mkdir -p $(@D) \
 	&& if test -e $@.running ; \
 	    then { echo "Already building $@ " && exit 0 ; } ; \
-	    else { touch $@.running ; echo "Building $@ now..." ; }  ; \
+	    else { touch $@.running ; echo "$$(date -Iseconds) Building $@ now..." ; }  ; \
 	   fi \
 	&& python lib/language_identification.py \
 	    --impresso_ft $(IMPPRESSO_FASTTEXT_MODEL) \
@@ -98,9 +105,10 @@ $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: IMPRESSO_REBUILT_DATA_DIR/%.jsonl.bz2
 	    --minimal-text-length $(MINIMAL_TEXT_LENGTH) \
 	    --input-file $< \
 	    --output-file $@.working.jsonl.bz2 \
-	    $(TARGET-LOG-MACRO) 1>&2 \
+	    $(TARGET_LOG_MACRO) 1>&2 \
 	&& mv $@.working.jsonl.bz2 $@ \
 	&& rm -fv $@.running \
+	&& echo "$$(date -Iseconds) build of $@ finished successfully." \
 	|| rm -fv $@.running
 
 # &> >(tee $@.log >&2)
@@ -110,7 +118,15 @@ $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: IMPRESSO_REBUILT_DATA_DIR/%.jsonl.bz2
 ########################################################################################################################
 # Stage 1b second part: Collect lid statistics per collection
 
-$(LID_BUILD_DIR)/stage1/%.stats.json: LID_BUILD_DIR/stage1/%/
+# collect statistics on stage 1a results per newspaper
+impresso-lid-stage1b-files:= \
+  $(addprefix $(LID_BUILD_DIR)/stage1/,\
+  	$(foreach ca,$(COLLECTION_ACRONYMS),$(ca).stats.json))
+
+$(eval $(call debug_variable,impresso-lid-stage1b-files))
+
+
+$(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%/
 	python lib/collection_statistics.py \
 	   --collection $* \
 	   --lids langid langdetect impresso_ft wp_ft \
@@ -121,29 +137,19 @@ $(LID_BUILD_DIR)/stage1/%.stats.json: LID_BUILD_DIR/stage1/%/
 	   --minimal_lid_probability 0.25 \
 	   $(<)$(*)*.jsonl.bz2 \
 	   > $@ \
-	   2> $@.log  \
+	   $(TARGET_LOG_MACRO)  \
+	&& echo "$$(date -Iseconds) build of $@ finished successfully." \
 	|| { echo "Warning: Something went wrong while building $@. Check $@.log. Cleaning up $@ now." ; rm -vf $@ ; }
 
-# collect statistics on stage 1 results per newspaper
-
-language-identification-collection-json-files := \
-  $(addprefix $(LID_BUILD_DIR)/stage1/,\
-  	$(foreach ca,$(COLLECTION_ACRONYMS),$(ca).stats.json))
-
-ifeq ($(DEBUG),1)
-$(info )
-$(info VARIABLE language-identification-collection-json-files)
-$(info $(language-identification-collection-json-files))
-$(info )
-endif
 
 # Concatenate all newspaper stats in one file
-$(LID_BUILD_DIR)/stage1.stats.json: $(language-identification-collection-json-files)
+$(LID_BUILD_DIR)/stage1.stats.json: $(impresso-lid-stage1b-files)
 	cat $+ > $@
 
-language-identification-collection-json-target: impresso-lid-stage1a-target \
-	$(language-identification-collection-json-files) \
-	LID_BUILD_DIR/stage1.stats.json
+impresso-lid-stage1b-target: impresso-lid-stage1a-target \
+	$(impresso-lid-stage1b-files) \
+	$(LID_BUILD_DIR)/stage1.stats.json
 
-impresso-lid-stage1-target: language-identification-collection-json-target
 
+impresso-lid-stage2-target: impresso-lid-stage1b-target
+	# TO BE IMPLEMENTED

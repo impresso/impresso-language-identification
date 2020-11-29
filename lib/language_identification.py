@@ -4,6 +4,7 @@
 import logging
 import re
 import sys
+import datetime
 from collections import Counter
 from typing import Dict, List, Optional, Iterable
 
@@ -117,8 +118,10 @@ class LanguageInfer(object):
         self.issue_stats = Counter()
 
     def run(self):
+        log.info(f"Language identification started.")
         self.language_identification()
         self.output()
+        log.info(f"Language identification finished.")
 
     def language_identification(self) -> None:
         """Run multiple language identifications with the models provided and update results

@@ -90,6 +90,7 @@ The intended output looks for instance as:
 """
 
 import json
+import datetime
 import logging
 from collections import Counter, defaultdict
 from typing import Optional, Set, Iterable
@@ -97,12 +98,13 @@ from typing import Optional, Set, Iterable
 from smart_open import open
 
 log = logging.getLogger(__name__)
-json.encoder.FLOAT_REPR = lambda o: format(o, '.5f')
+__VERSION__ = "2020.11.29"
 
 
-def update_relfreq(counter: Counter, n: Optional[int] = None) -> None:
+def update_relfreq(counter: Counter, n: Optional[int] = None, ndigits: int = 9) -> None:
     """Update the frequency distribution counter into relative frequency
 
+    :param ndigits: Round floats to n digits
     :param n: Total of counts if given
     :type counter: Some frequency distribution
     """
@@ -110,12 +112,18 @@ def update_relfreq(counter: Counter, n: Optional[int] = None) -> None:
     if n is None:
         n = sum(counter.values())
     for k in counter:
-        counter[k] /= n
+        counter[k] = round(counter[k] / n, ndigits)
 
 
 class MainApplication(object):
 
     def __init__(self, args):
+
+        self.version = __VERSION__
+        """Version of the collection script"""
+
+        # self.ts => see self.ts()
+
         self.args = args
         """Command line arguments"""
 
@@ -128,7 +136,9 @@ class MainApplication(object):
                                "lids",
                                "boosted_lids",
                                "boost_factor",
-                               "admissible_languages"
+                               "admissible_languages",
+                               "version",
+                               "ts"
                                ]
         """Defines all attributes of the this object that enter the JSON output in the corresponding order"""
 
@@ -147,7 +157,7 @@ class MainApplication(object):
         """
         if self.boosted_lids != set(self.args.boosted_lids):
             log.warning(
-                f"The set of boosted_lids contained the following invalid and ignored system identifiers: " 
+                f"The set of boosted_lids contained the following invalid and ignored system identifiers: "
                 f"{self.boosted_lids.symmetric_difference(self.args.boosted_lids)}")
 
         self.boost_factor: float = self.args.boost_factor
@@ -207,6 +217,12 @@ class MainApplication(object):
 
         self.collection: str = self.args.collection
         """Short canonical name of newspaper"""
+
+    @property
+    def ts(self):
+        """Return ISO timestamp in impresso resolution"""
+
+        return datetime.datetime.now(datetime.timezone.utc).isoformat(sep="T", timespec="seconds")
 
     def run(self):
         """Run the application"""
@@ -302,15 +318,16 @@ class MainApplication(object):
                     self.orig_lg_support[lang] += 1
         try:
             self.overall_orig_lg_support = \
-                sum(self.orig_lg_support.values()) / sum(self.lid_distributions['orig_lg'][key]
-                                                         for
-                                                         key in self.lid_distributions['orig_lg'] if
-                                                         key is not
-                                                         None)
+                round(sum(self.orig_lg_support.values())
+                      / sum(self.lid_distributions['orig_lg'][key]
+                            for
+                            key in self.lid_distributions['orig_lg'] if
+                            key is not
+                            None), self.args.round_ndigits)
         except ZeroDivisionError:
             self.overall_orig_lg_support = None
         for lid in self.lid_distributions:
-            update_relfreq(self.lid_distributions[lid], n=self.n)
+            update_relfreq(self.lid_distributions[lid], n=self.n, ndigits=self.args.round_ndigits)
 
         self.dominant_language = self.lid_distributions['ensemble'].most_common(1)[0][0]
 
@@ -357,6 +374,10 @@ if __name__ == '__main__':
     parser.add_argument('--minimal_vote_score', dest='minimal_vote_score', metavar="S", default=1.5,
                         type=float,
                         help='Minimal vote score from ensemble to reach a decision (default %(default)s)')
+    parser.add_argument('--round_ndigits', dest='round_ndigits', default=9,
+                        type=int,
+                        help='round floats in the output to n digits (default %(default)s)')
+
     parser.add_argument(
         "infile",
         metavar="INPUT",
