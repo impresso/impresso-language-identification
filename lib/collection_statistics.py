@@ -160,7 +160,7 @@ class MainApplication(object):
         decision. This number serves as a criterion on the confidence that can establish for a collection.
         """
 
-        self.N: int = 0
+        self.n: int = 0
         """Total number of content items that are not filtered out due to incompatible type (img) or shortness"""
 
         self.dominant_language: Optional[str] = None
@@ -171,7 +171,7 @@ class MainApplication(object):
         extracted for convenience here. """
 
         self.admissible_languages: Optional[Set[str]] = \
-            set(args.admissible_languages) if not args.admissible_languages else None
+            set(args.admissible_languages) if args.admissible_languages else None
         """Set of admissible language: If None, no restrictions are applied"""
 
         self.orig_lg_support: Counter = Counter()
@@ -247,7 +247,7 @@ class MainApplication(object):
     def get_votes(self, content_item: dict) -> Optional[Counter]:
         """Return dictionary with boosted votes per language"""
 
-        votes = defaultdict(list)  # for each language key we have a list of tuples (LID, votescore)
+        votes = defaultdict(list)  # for each language key we have a list of tuples (LID, vote_score)
         if content_item.get('orig_lg'):
             votes[content_item.get('orig_lg')].append(('orig_lg', (1 if 'orig_lg' not in self.boosted_lids else
                                                                    self.boost_factor)))
@@ -271,7 +271,7 @@ class MainApplication(object):
                   f"votes = {dict(votes)} decision-distro {decision} decision = "
                   f"content_item ={content_item}")
 
-        if len(decision) < 1:
+        if len(decision) < 1:  # no decision taken
             return None
 
         return decision
@@ -290,9 +290,9 @@ class MainApplication(object):
             ci_len = ci.get("len", 0)
             self.content_length_stats[ci_len] += 1
             if ci_len < self.args.threshold_for_support:
-                log.warning(f"WARNING-SHORT-CONTENTITEM {ci['cid']}\t{ci.get('len', 0)}")
+                log.warning(f"WARNING-SHORT-CONTENTITEM {ci['id']}\t{ci.get('len', 0)}")
                 continue
-            self.N += 1
+            self.n += 1
             self.update_lid_counters(ci)
             orig_lg = ci.get("orig_lg")
             self.lid_distributions['orig_lg'][orig_lg] += 1
@@ -323,7 +323,7 @@ class MainApplication(object):
         except ZeroDivisionError:
             self.overall_orig_lg_support = None
         for lid in self.lid_distributions:
-            update_relfreq(self.lid_distributions[lid], n=self.N)
+            update_relfreq(self.lid_distributions[lid], n=self.n)
 
         self.dominant_language = self.lid_distributions['ensemble'].most_common(1)[0][0]
 
@@ -342,7 +342,7 @@ class MainApplication(object):
         """Process all jsonl entries"""
 
         self.collect_statistics()
-        json_data = self.jsonfy()
+        json_data = self.jsonify()
         print(json.dumps(json_data))
 
 

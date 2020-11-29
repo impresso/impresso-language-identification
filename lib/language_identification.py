@@ -5,7 +5,7 @@ import logging
 import re
 import sys
 from collections import Counter
-from typing import Dict, List
+from typing import Dict, List, Optional, Iterable
 
 import fasttext
 import jsonlines
@@ -17,7 +17,7 @@ from smart_open import open
 log = logging.getLogger(__name__)
 
 
-def alphabetical_ratio(text: str) -> float:
+def alphabetical_ratio(text: str) -> Optional[float]:
     """Return the percentage of alphabetic characters of a text
 
     All digits, punctuation symbols, layout characters, are removed
@@ -105,7 +105,7 @@ def fasttext_lid(text: str, ft_model) -> List[Dict[str, float]]:
     return result
 
 
-class LanguageInfer():
+class LanguageInfer(object):
 
     def __init__(self, args: Dict) -> None:
         self.args = args
@@ -209,7 +209,7 @@ class LanguageInfer():
             writer = jsonlines.Writer(f_out)
             writer.write_all(self.results)
 
-    def next_contentitem(self):
+    def next_contentitem(self) -> Iterable[dict]:
         """"
         Yield each contentitem
         """
@@ -225,7 +225,7 @@ if __name__ == '__main__':
 
     description = "Compute language identification classes and their probability with different lid tools. Per " \
                   "default we use langdetect, langid. Per option two additional fasttext models  can be loaded "
-    epilog = ""
+    epilog = "All tools use two-letter ISO 639-1 codes, except wp_ft which recognizes additional languages identifiable only by 3 letter codes."
     parser = argparse.ArgumentParser(description=description, epilog=epilog)
     parser.add_argument('-l', '--logfile', dest='logfile',
                         help='write log to FILE', metavar='FILE')
