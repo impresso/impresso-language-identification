@@ -54,7 +54,8 @@ def average_distribution(listoflist: List[List]) -> List[Dict[str, float]]:
             counter[r.lang] += r.prob
     for lang in counter:
         counter[lang] = counter[lang] / total
-    result = [{"lang": lang, "prob": round(counter[lang], 2)} for lang in counter]
+    #log.critical(f"{counter.most_common()}")
+    result = [{"lang": lang, "prob": round(prob, 2)} for lang,prob in counter.most_common()]
 
     log.debug(f"DEBUG-LANGDETECT-DIVERSITY Length: {len(listoflist)} Predictions: {listoflist}")
 
