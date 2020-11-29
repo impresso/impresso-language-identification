@@ -91,7 +91,6 @@ The intended output looks for instance as:
 
 import json
 import logging
-import sys
 from collections import Counter, defaultdict
 from typing import Optional, Set, Iterable
 
@@ -99,6 +98,7 @@ from smart_open import open
 
 log = logging.getLogger(__name__)
 json.encoder.FLOAT_REPR = lambda o: format(o, '.5f')
+
 
 def update_relfreq(counter: Counter, n: Optional[int] = None) -> None:
     """Update the frequency distribution counter into relative frequency
@@ -132,7 +132,7 @@ class MainApplication(object):
                                ]
         """Defines all attributes of the this object that enter the JSON output in the corresponding order"""
 
-        self.lids: Set[str] = set(self.args.lids)
+        self.lids: Set[str] = set(lid for lid in self.args.lids if lid != "orig_lg")
 
         if len(self.lids) < 1:
             print(f"ERROR: At least one language identificator needed")
@@ -142,11 +142,13 @@ class MainApplication(object):
         """Percentage of all content items with a non-null original language and the requested minimal length 
         threshold that agree with the ensemble decision"""
 
-        self.boosted_lids: Set[str] = set(self.args.boosted_lids)
+        self.boosted_lids: Set[str] = set(lid for lid in self.args.boosted_lids if lid == "orig_lg" or lid in self.lids)
         """Set of LIDs that are boosted by a boost factor
-        
-        @TODO check if self.boosted_lids contains a lid that is not in self.lids
         """
+        if self.boosted_lids != set(self.args.boosted_lids):
+            log.warning(
+                f"The set of boosted_lids contained the following invalid and ignored system identifiers: " 
+                f"{self.boosted_lids.symmetric_difference(self.args.boosted_lids)}")
 
         self.boost_factor: float = self.args.boost_factor
         """Boost factor applied to boosted LIDS if the have support from at least another LID
@@ -222,19 +224,6 @@ class MainApplication(object):
                 contentitem = json.loads(line)
                 yield contentitem
 
-
-    def print_stats(self, label, counter, file=sys.stderr):
-        header = f"""COL-LAB-NONE-OTHER-{"-".join(l for l in sorted(self.args.admissible_languages))}"""
-        print(header,
-              self.args.collection,
-              label,
-              counter[None],
-              counter['_'],
-              *[counter[lang] for lang in sorted(self.args.admissible_languages)],
-              sep="\t",
-              file=file)
-
-
     def update_lid_counters(self, content_item: dict) -> None:
         """Update the self.lid_counter structure with the most probable language"""
 
@@ -242,7 +231,6 @@ class MainApplication(object):
             if lid in content_item and content_item[lid] is not None and len(content_item[lid]) > 0:
                 lang = content_item[lid][0]['lang']
                 self.lid_distributions[lid][lang] += 1
-
 
     def get_votes(self, content_item: dict) -> Optional[Counter]:
         """Return dictionary with boosted votes per language"""
@@ -275,7 +263,6 @@ class MainApplication(object):
             return None
 
         return decision
-
 
     def collect_statistics(self) -> None:
         """Collect and update statistics in self"""
@@ -380,7 +367,7 @@ if __name__ == '__main__':
         nargs="+",
         default=[],
         metavar='LID',
-        help="Names of allLID systems (e.g. langdetect, langid) that are used. Do not add orig_lg here!",
+        help="Names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here!",
     )
     parser.add_argument(
         "--boosted_lids",

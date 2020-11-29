@@ -16,6 +16,7 @@ from smart_open import open
 
 log = logging.getLogger(__name__)
 
+__VERSION__ = "2020.11.29"
 
 def alphabetical_ratio(text: str) -> Optional[float]:
     """Return the percentage of alphabetic characters of a text
@@ -152,7 +153,8 @@ class LanguageInfer(object):
                         "tp": j["tp"],
                         "id": j["id"],
                         "len": len(j["ft"]) if "ft" in j and isinstance(j["ft"], str) else 0,
-                        "orig_lg": j["lg"] if "lg" in j else None
+                        "orig_lg": j["lg"] if "lg" in j else None,
+                        "version": __VERSION__
                     }
                 )
 
