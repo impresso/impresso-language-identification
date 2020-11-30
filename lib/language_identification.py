@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 
+__version__ = "2020.11.30"
+
 import logging
 import re
 import sys
@@ -16,8 +18,6 @@ from langid.langid import LanguageIdentifier, model
 from smart_open import open
 
 log = logging.getLogger(__name__)
-
-__VERSION__ = "2020.11.29"
 
 langdetect.DetectorFactory.seed = 42
 
@@ -161,7 +161,7 @@ class LanguageInfer(object):
                         "id": j["id"],
                         "len": len(j["ft"]) if "ft" in j and isinstance(j["ft"], str) else 0,
                         "orig_lg": j["lg"] if "lg" in j else None,
-                        "version": __VERSION__,
+                        "version": __version__,
                         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(sep="T", timespec="seconds")
                     }
                 )

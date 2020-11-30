@@ -41,6 +41,7 @@ Mode: overall analysis:
     - orig_lg_support_distribution: list of lang/prob
 
 """
+__version__ = "2020.11.29"
 
 import datetime
 import json
@@ -51,7 +52,7 @@ from typing import Optional, Set, Iterable
 from smart_open import open
 
 log = logging.getLogger(__name__)
-__VERSION__ = "2020.11.29"
+
 
 
 def update_relfreq(counter: Counter, n: Optional[int] = None, ndigits: int = 9) -> None:
@@ -72,7 +73,7 @@ class MainApplication(object):
 
     def __init__(self, args):
 
-        self.version = __VERSION__
+        self.version = __version__
         """Version of the collection script"""
 
         # self.ts => see self.ts()
@@ -277,13 +278,14 @@ class MainApplication(object):
 
         try:
             self.orig_lg_n = sum(count for key, count in self.lid_distributions['orig_lg'].items() if key is not None)
-            self.overall_orig_lg_support = round(sum(self.orig_lg_support.values())/self.orig_lg_n, self.args.round_ndigits)
+            self.overall_orig_lg_support = round(sum(self.orig_lg_support.values()) / self.orig_lg_n,
+                                                 self.args.round_ndigits)
         except ZeroDivisionError:
             self.overall_orig_lg_support = None
 
-
         for lang in self.orig_lg_support:
-            self.orig_lg_support[lang] = round(self.orig_lg_support[lang]/self.lid_distributions["orig_lg"][lang],self.args.round_ndigits)
+            self.orig_lg_support[lang] = round(self.orig_lg_support[lang] / self.lid_distributions["orig_lg"][lang],
+                                               self.args.round_ndigits)
 
         for lid in self.lid_distributions:
             update_relfreq(self.lid_distributions[lid], n=self.n, ndigits=self.args.round_ndigits)
