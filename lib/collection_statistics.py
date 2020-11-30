@@ -26,14 +26,9 @@ The following strategy is applied to decide for a language:
  any other system, their vote is upweighted by a factor of 1.5
 
 
-
 The output of the first stage, where a bunch of automatic language identifiers is applied, looks like:
 
-{"tp": "page", "cid": "arbeitgeber-1909-01-02-a-i0017", "len": 5636, "orig_lg": null, "alphabetical_ratio": 0.79, "langdetect": [{"lang": "de", "prob": 1.0}], "langid": [{"lang": "de", "prob": 1.0}], "impresso_ft": [{"lang": "de", "prob": 1.0}], "wp_ft": [{"lang": "de", "prob": 0.95}, {"lang": "en", "prob": 0.01}]}
-
-{"tp": "tb", "cid": "luxzeit1858-1859-01-07-a-i0020", "len": 143, "orig_lg": null, "alphabetical_ratio": 0.38, "langdetect": [{"lang": "fr", "prob": 1.0}], "langid": [{"lang": "fr", "prob": 1.0}], "impresso_ft": [{"lang": "fr", "prob": 1.0}], "wp_ft": [{"lang": "fr", "prob": 0.98}]}
-{"tp": "tb", "cid": "luxzeit1858-1859-01-07-a-i0021", "len": 20, "orig_lg": null}
-
+{"tp": "page", "id": "arbeitgeber-1909-01-02-a-i0017", "len": 5636, "orig_lg": null, "alphabetical_ratio": 0.79, "langdetect": [{"lang": "de", "prob": 1.0}], "langid": [{"lang": "de", "prob": 1.0}], "impresso_ft": [{"lang": "de", "prob": 1.0}], "wp_ft": [{"lang": "de", "prob": 0.95}, {"lang": "en", "prob": 0.01}]}
 
 
 Mode: overall analysis:
@@ -45,52 +40,10 @@ Mode: overall analysis:
     - orig_lg_support_total: Boolean
     - orig_lg_support_distribution: list of lang/prob
 
-
-
-The intended output looks for instance as:
-{
-  "collection": "BDC",
-  "total_orig_support_ratio": 1,
-  "textual_content_item_with_orig_lg_count": 145,
-  "textual_content_item_count": 145,
-  "orig_lg_support": {
-    "fr": 127
-  },
-  "orig_lg": {
-    "fr": 145
-  },
-  "orig_lg_threshold": {
-    "fr": 127
-  },
-  "langidlangdetect": {
-    "fr": 127,
-    "null": 18
-  },
-  "contentitem_type_distribution": {
-    "ar": 135,
-    "img": 1,
-    "ad": 10
-  },
-  "threshold_for_support": 200,
-  "dominant_orig_lg": [
-    {
-      "lang": "fr",
-      "count": 145
-    }
-  ],
-  "dominant_langidlangdetect": [
-    {
-      "lang": "fr",
-      "count": 127
-    }
-  ]
-}
-
-
 """
 
-import json
 import datetime
+import json
 import logging
 from collections import Counter, defaultdict
 from typing import Optional, Set, Iterable
