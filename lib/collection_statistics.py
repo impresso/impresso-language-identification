@@ -130,8 +130,10 @@ class MainApplication(object):
         self.attrs_for_json = ["collection",
                                "dominant_language",
                                "overall_orig_lg_support",
+                               "orig_lg_n",
                                "n",
                                "lid_distributions",
+                               "orig_lg_support",
                                "contentitem_type_distribution",
                                "lids",
                                "boosted_lids",
@@ -166,6 +168,9 @@ class MainApplication(object):
         The idea is that on their own some of the LIDs or the orig_lg can be pretty wrong. If they have at least a 
         support from a another system the confidence into their decision grows considerably.
         """
+
+        self.orig_lg_n: int = 0
+        """Total number of content items with orig_lg information that are not filtered out due to incompatible type (img) or shortness"""
 
         self.overall_orig_lg_support: Optional[float] = None
         """Percentage of existing language categorizations ("orig_lg" attribute) that has been backed by the ensemble 
@@ -316,16 +321,17 @@ class MainApplication(object):
             if orig_lg is not None:
                 if lang == orig_lg:
                     self.orig_lg_support[lang] += 1
+
         try:
-            self.overall_orig_lg_support = \
-                round(sum(self.orig_lg_support.values())
-                      / sum(self.lid_distributions['orig_lg'][key]
-                            for
-                            key in self.lid_distributions['orig_lg'] if
-                            key is not
-                            None), self.args.round_ndigits)
+            self.orig_lg_n = sum(count for key, count in self.lid_distributions['orig_lg'].items() if key is not None)
+            self.overall_orig_lg_support = round(sum(self.orig_lg_support.values())/self.orig_lg_n, self.args.round_ndigits)
         except ZeroDivisionError:
             self.overall_orig_lg_support = None
+
+
+        for lang in self.orig_lg_support:
+            self.orig_lg_support[lang] = round(self.orig_lg_support[lang]/self.lid_distributions["orig_lg"][lang],self.args.round_ndigits)
+
         for lid in self.lid_distributions:
             update_relfreq(self.lid_distributions[lid], n=self.n, ndigits=self.args.round_ndigits)
 
