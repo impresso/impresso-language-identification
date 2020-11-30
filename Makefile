@@ -34,11 +34,19 @@ DEBUG ?= 0
 # additionally print diagnostic output on terminal in debug mode
 
 ifeq ($(DEBUG),1)
-TARGET_LOG_MACRO = 2> >(tee $$@.log 1>&2)
+TARGET_LOG_MACRO = 2> >(tee $@.log 1>&2)
 # if you want to tee and redirect stdout AND stderr, you need to write 1>2& AFTER the macro in a rule.
 # Remember that the order of redirections matters! https://stackoverflow.com/q/17975232
 else
-TARGET_LOG_MACRO = 2> $$@.log
+TARGET_LOG_MACRO = 2> $@.log
+endif
+
+# additionally print diagnostic output on terminal in debug mode
+
+ifeq ($(DEBUG),1)
+DEBUG_OPTION = --verbose 4
+else
+DEBUG_OPTION =
 endif
 
 ########################################################################################## 
@@ -105,6 +113,7 @@ $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
 	    --minimal-text-length $(MINIMAL_TEXT_LENGTH) \
 	    --input-file $< \
 	    --output-file $@.working.jsonl.bz2 \
+	    $(DEBUG_OPTION) \
 	    $(TARGET_LOG_MACRO) 1>&2 \
 	&& mv $@.working.jsonl.bz2 $@ \
 	&& rm -fv $@.running \
@@ -135,6 +144,7 @@ $(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%/
 	   --boost_factor 1.5 \
 	   --minimal_vote_score 1.5 \
 	   --minimal_lid_probability 0.25 \
+	   $(DEBUG_OPTION) \
 	   $(<)$(*)*.jsonl.bz2 \
 	   > $@ \
 	   $(TARGET_LOG_MACRO)  \
