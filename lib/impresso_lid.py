@@ -362,7 +362,7 @@ if __name__ == '__main__':
     parser.add_argument('--boost-factor', dest='boost_factor', metavar="B", default=1.5,
                         type=float,
                         help='Boost factor for boosted lids (default %(default)s)')
-    parser.add_argument('--minimal-lid-probability', dest='minimal_lid_probability', metavar="P", default=0.25,
+    parser.add_argument('--minimal-lid-probability', dest='minimal_lid_probability', metavar="P", default=0.5,
                         type=float,
                         help='Minimal probability for a LID decision to be considered a vote (default %(default)s)')
     parser.add_argument('-m', '--minimal-text-length', default=20, type=int,
