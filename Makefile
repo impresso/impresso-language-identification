@@ -136,7 +136,8 @@ $(eval $(call debug_variable,impresso-lid-stage1b-files))
 
 
 $(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%/
-	python lib/collection_statistics.py \
+	bzcat $(<)$(*)*.jsonl.bz2 \
+	| python lib/collection_statistics.py \
 	   --collection $* \
 	   --lids langid langdetect impresso_ft wp_ft \
 	   --boosted_lids orig_lg impresso_ft \
@@ -145,7 +146,6 @@ $(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%/
 	   --minimal_vote_score 1.5 \
 	   --minimal_lid_probability 0.25 \
 	   $(DEBUG_OPTION) \
-	   $(<)$(*)*.jsonl.bz2 \
 	   > $@ \
 	   $(TARGET_LOG_MACRO)  \
 	&& echo "$$(date -Iseconds) build of $@ finished successfully." \
