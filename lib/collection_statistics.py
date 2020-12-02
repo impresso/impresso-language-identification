@@ -46,7 +46,6 @@ __version__ = "2020.12.02"
 import datetime
 import json
 import logging
-import sys
 from collections import Counter, defaultdict
 from typing import Optional, Set, Iterable
 
@@ -210,10 +209,11 @@ class MainApplication(object):
 
         :rtype: object
         """
-        with open(self.args.infile) as infile:
-            for line in infile:
-                contentitem = json.loads(line)
-                yield contentitem
+        for infile in self.args.infile:
+            with open(infile) as infile:
+                for line in infile:
+                    contentitem = json.loads(line)
+                    yield contentitem
 
 
     def update_lid_distributions(self, content_item: dict) -> None:
@@ -412,10 +412,9 @@ if __name__ == '__main__':
     parser.add_argument(
         "infile",
         metavar="INPUT",
-        nargs="?",
-        type=argparse.FileType("r"),
-        default=sys.stdin,
-        help="Input file (default: STDIN)",
+        nargs="+",
+        type=str,
+        help="Input files",
     )
     parser.add_argument(
         "--lids",

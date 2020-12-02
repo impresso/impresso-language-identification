@@ -329,7 +329,7 @@ class MainApplication(object):
                 self.results.append(jinfo)
                 continue
             votes = self.get_votes(oldjinfo)
-            log.debug(f"VOTES {votes}")
+            log.debug(f"VOTES\t{votes}")
             jinfo["lg"] = votes.most_common(n=1)[0][0]
             jinfo["lg_decision"] = "voting"
             self.decision_distribution["voting"] += 1
