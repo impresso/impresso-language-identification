@@ -48,7 +48,7 @@ texts. The corresponding build command is:
  
     make impresso-lid-stage1a-target
 
-This step produces a JSON file per year per collection.
+This step produces a JSON file per year per collection. As this takes a lot of time, you can run the command on different machines that work on the same shared files.
 
 Properties of standard LID tools used in impresso:
 
@@ -90,6 +90,8 @@ when determining the final decision per content item in the last step.
 
     make impresso-lid-stage1-target
 
+This command only be run after stage 1a has been completely built. Cannot be run at the same time via different machines. 
+
 ## Stage 2: Determining the language per content item
 
 Given the output from different LID systems and the original language
@@ -113,4 +115,11 @@ information we finally decide according to the following rules:
      language (remember if greater than 75% overall)
    - the boost_factor for `impresso_ft` is applied.
 
+    make impresso-lid-stage2-target
 
+This is fast and cannot be run on different machines.
+
+## Notes
+To run the full lid processing on a single machine with N cores, run:
+
+    make impresso-lid -j N 
