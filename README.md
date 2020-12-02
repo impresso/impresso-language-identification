@@ -52,13 +52,13 @@ This step produces a JSON file per year per collection.
 
 Properties of standard LID tools used in impresso:
 
-  - langid LID (recognizes many language, incl. lb):
-    https://github.com/saffsd/langid.py
-  - langdetect LID (recognizes many languages, except lb):
-    https://github.com/Mimino666/langdetect
-  - wp_ft wikipedia model delivered by fasttext (recognizes many languages,
-      incl. lb): https://fasttext.cc/docs/en/language-identification.html
-  - impresso_ft impresso model based on fasttext (recognizes exactly fr/de/lb)
+  - `langid` LID (recognizes many language, incl. `lb`):
+    [https://github.com/saffsd/langid.py]()
+  - `langdetect` LID (recognizes many languages, except `lb`):
+    [https://github.com/Mimino666/langdetect]()
+  - `wp_ft` wikipedia model delivered by fasttext (recognizes many languages,
+      incl. lb): [https://fasttext.cc/docs/en/language-identification.html]()
+  - `impresso_ft` impresso model based on fasttext (recognizes exactly `fr/de/lb`)
 
 
 ## Stage 1b: Computing collection statistics
@@ -71,7 +71,7 @@ Given the incomplete and sometimes unreliable metadata regarding the content
  according to the following rules:
  
   - Content items with less than 200 characters are ignored.
-  - Content items with an alphabetical rate < 0.5 are ignored.
+  - Content items with an alphabetical ratio < 0.5 are ignored.
   - Every language identification prediction has one vote.
   - If external metadata exists (called `orig_lg` henceforth), it counts also as
     a LID prediction.
@@ -93,24 +93,24 @@ when determining the final decision per content item in the last step.
 ## Stage 2: Determining the language per content item
 
 Given the output from different LID systems and the original language
-information we decide according to the following rules:
+information we finally decide according to the following rules:
 
- - If the support for the original language is below 75%, we ignore it
-  completely. Otherwise the original language is treated as LID system.
-  - If all LID systems agree, we choose this language (restricted to de and fr
-  due to the limitations of impresso_ft system). Decision code: 'all'
-  - If all LID systems except impresso_ft agree on a language other than de or
-   fr (typically it, la, or other rare languages). Decision code: 'others'
-  - Else if the text is shorter than 50 characters, we simply choose the
-   dominant language. Decision code: 'dominant'
+ - If the overall support for the original language is below 75%, we ignore it
+  completely. Otherwise the original language is treated the same way as any other LID system.
+ - If all LID systems agree, we choose this language (this is naturally restricted to the languages `de` and `fr`
+  due to the limitations of `impresso_ft` system). Decision code: `all`
+ - If all LID systems except `impresso_ft` agree on a language other than `de` or
+   `fr` (typically `it`, `la`, or other rare languages; `lb` is excluded because not all LID systems can recognize `lb`). Decision code: `other`
+ - Else if the text is shorter than 50 characters, we simply choose the
+   dominant language of the newspaper. Decision code: `dominant`
  - Else we apply a similar voting technique as in the global statistics step
-  with the following modifications (taking into account that impresso_ft has
-  been specifically been trained on Luxembourgish and difficult multilingual
-  cases). Decision code: 'vote'
-    - if the most probable language of impresso_ft is lb, the vote score of
-     impresso_ft is set to 3*prob, using the probability of the decision  
-    - the vote score of orig_lg is set to 2*relative support for the specific
-     language (if greater than 75%)
-    - the boost_factor for impresso_ft is applied.
+  with the following modifications (taking into account that `impresso_ft` has
+  been specifically been trained on Luxembourgish and other difficult multilingual
+  cases). Decision code: `vote`
+   - if the most probable language of `impresso_ft` is `lb`, the vote score of
+     `impresso_ft` is set to 3*prob, using the probability of the decision  
+   - the vote score of `orig_lg` is set to 2*relative support for the specific
+     language (remember if greater than 75% overall)
+   - the boost_factor for `impresso_ft` is applied.
 
 

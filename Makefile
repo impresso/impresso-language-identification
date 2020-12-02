@@ -160,6 +160,33 @@ impresso-lid-stage1b-target: impresso-lid-stage1a-target \
 	$(impresso-lid-stage1b-files) \
 	$(LID_BUILD_DIR)/stage1.stats.json
 
+########################################################################################################################
+# Stage 2 second part: Decide for a language given collection statistics and individual content item predictions
 
-impresso-lid-stage2-target: impresso-lid-stage1b-target
-	# TO BE IMPLEMENTED
+impresso-lid-stage2-files := $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_DIR)/stage2,$(impresso-rebuilt-files))
+
+$(eval $(call debug_variable,impresso-lid-stage2-files))
+
+impresso-lid-stage2-target: impresso-lid-stage1b-target $(impresso-lid-stage2-files)
+
+# python lib/impresso_lid.py -i testbuild/v1.1/stage1/waeschfra/waeschfra-1871.jsonl.bz2 -C testbuild/v1.1/stage1/waeschfra.stats.json  --lids langdetect langid orig_lg impresso_ft wp_ft  --boosted_lids impresso_ft --double_boosted_lids impresso_ft -v 4
+# rule for building all stage 2 files
+$(LID_BUILD_DIR)/stage2/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
+	mkdir -p $(@D) \
+	&& python lib/impresso_lid.py \
+	 --lids langid langdetect impresso_ft wp_ft \
+	 --boost-factor 1.5 \
+	 --double-boosted-lids impresso_ft \
+	 --boosted-lids impresso_ft \
+	 --minimal-text-length $(MINIMAL_TEXT_LENGTH) \
+	 --collection-json-stats $(patsubst %/,%.stats.json,$(subst /stage2,/stage1,$(dir $@))) \
+	 --input-file $< \
+	 --output-file $@.working.jsonl.bz2 \
+     $(DEBUG_OPTION) \
+	 $(TARGET_LOG_MACRO) \
+	&& mv $@.working.jsonl.bz2 $@ \
+	&& echo "$$(date -Iseconds) build of $@ finished successfully." \
+	|| { echo "Warning: Something went wrong while building $@. Check $@.log. Cleaning up $@ now." ; rm -vf $@ ; }
+
+
+
