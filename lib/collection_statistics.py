@@ -41,7 +41,7 @@ Mode: overall analysis:
     - orig_lg_support_distribution: list of lang/prob
 
 """
-__version__ = "2020.11.29"
+__version__ = "2020.12.02"
 
 import datetime
 import json
@@ -52,7 +52,6 @@ from typing import Optional, Set, Iterable
 from smart_open import open
 
 log = logging.getLogger(__name__)
-
 
 
 def update_relfreq(counter: Counter, n: Optional[int] = None, ndigits: int = 9) -> None:
@@ -76,29 +75,44 @@ class MainApplication(object):
         self.version = __version__
         """Version of the collection script"""
 
-        # self.ts => see self.ts()
+
+        # self.ts # implemented as @property method in self.ts()
 
         self.args = args
         """Command line arguments"""
 
-        self.attrs_for_json = ["collection",
-                               "dominant_language",
-                               "overall_orig_lg_support",
-                               "orig_lg_n",
-                               "n",
-                               "lid_distributions",
-                               "orig_lg_support",
-                               "contentitem_type_distribution",
-                               "lids",
-                               "boosted_lids",
-                               "boost_factor",
-                               "admissible_languages",
-                               "version",
-                               "ts"
-                               ]
-        """Defines all attributes of the this object that enter the JSON output in the corresponding order"""
+
+        self.attrs_for_json = [
+            # configured information
+            "collection",
+            "lids",
+            "boosted_lids",
+            "boost_factor",
+            "admissible_languages",
+
+            # collected statistical information
+            "dominant_language",
+            "overall_orig_lg_support",
+            "n",
+            "lid_distributions",
+            "lg_support",
+            "lg_support_n",
+            "contentitem_type_distribution",
+
+            # administrative information
+            "version",
+            "ts"
+        ]
+        """Defines all attributes of this data object that enter the JSON output in their corresponding order"""
+
+        self.collection: str = self.args.collection
+        """Short canonical name of newspaper"""
+
 
         self.lids: Set[str] = set(lid for lid in self.args.lids if lid != "orig_lg")
+        """Set of LID systems predict language/probability pairs.
+        Therefore, orig_lg is not seen as LID system as it "predicts" only a single language if any.
+        """
 
         if len(self.lids) < 1:
             print(f"ERROR: At least one language identificator needed")
@@ -108,9 +122,10 @@ class MainApplication(object):
         """Percentage of all content items with a non-null original language and the requested minimal length 
         threshold that agree with the ensemble decision"""
 
+
         self.boosted_lids: Set[str] = set(lid for lid in self.args.boosted_lids if lid == "orig_lg" or lid in self.lids)
-        """Set of LIDs that are boosted by a boost factor
-        """
+        """Set of LIDs that are boosted by a boost factor"""
+
         if self.boosted_lids != set(self.args.boosted_lids):
             log.warning(
                 f"The set of boosted_lids contained the following invalid and ignored system identifiers: "
@@ -123,16 +138,19 @@ class MainApplication(object):
         support from a another system the confidence into their decision grows considerably.
         """
 
-        self.orig_lg_n: int = 0
-        """Total number of content items with orig_lg information that are not filtered out due to incompatible type (img) or shortness"""
+
+        self.admissible_languages: Optional[Set[str]] = \
+            set(args.admissible_languages) if args.admissible_languages else None
+        """Set of admissible language: If None, no restrictions are applied"""
+
 
         self.overall_orig_lg_support: Optional[float] = None
         """Percentage of existing language categorizations ("orig_lg" attribute) that has been backed by the ensemble 
-        decision. This number serves as a criterion on the confidence that can establish for a collection.
+        decision. This number serves as an overall criterion on the confidence that we can establish for a collection.
         """
 
         self.n: int = 0
-        """Total number of content items that are not filtered out due to incompatible type (img) or shortness"""
+        """Total number of content items that are not filtered out due to incompatible type (img) or lack of any textual content"""
 
         self.dominant_language: Optional[str] = None
         """The most frequent language according to the ensemble decisions. 
@@ -141,17 +159,15 @@ class MainApplication(object):
         can be found in the language class distribution in the ensemble frequency distribution. This value is 
         extracted for convenience here. """
 
-        self.admissible_languages: Optional[Set[str]] = \
-            set(args.admissible_languages) if args.admissible_languages else None
-        """Set of admissible language: If None, no restrictions are applied"""
 
-        self.orig_lg_support: Counter = Counter()
-        """Counter for agreement/disagreement of ensemble decision and original language
-        
-        The overall_orig_lg_support is computed from this distribution.
-        """
+        self.lg_support: dict = {lid: Counter() for lid in self.lids.union(("orig_lg",))}
+        """Counter for agreement/disagreement w.r.t. ensemble decision"""
 
-        self.lid_distributions: dict = {lid: Counter() for lid in self.lids}
+        self.lg_support_n: dict = {lid: {} for lid in self.lids.union(("orig_lg",))}
+        """Number of lid language predictions that got support from the ensemble decision."""
+
+
+        self.lid_distributions: dict = {lid: Counter() for lid in self.lids.union(("orig_lg", "ensemble"))}
         """Dictionary with a language frequency distribution for each selected LID, `orig_lg` and the voting result 
         as `ensemble``
         
@@ -162,20 +178,14 @@ class MainApplication(object):
             - wp_ft wikipedia model delivered by fasttext (supports many languages, incl. lb)
         """
 
-        self.lid_distributions['orig_lg']: Counter = Counter()
-        """Distribution of provided original languages"""
-
-        self.lid_distributions['ensemble']: Counter = Counter()
-        """Distribution of ensemble decisions """
 
         self.contentitem_type_distribution: Counter = Counter()
         """Distribution of content item types"""
 
+
         self.content_length_stats: Counter = Counter()
         """Distribution of article lengths (raw character counts)"""
 
-        self.collection: str = self.args.collection
-        """Short canonical name of newspaper"""
 
     @property
     def ts(self):
@@ -183,10 +193,15 @@ class MainApplication(object):
 
         return datetime.datetime.now(datetime.timezone.utc).isoformat(sep="T", timespec="seconds")
 
+
     def run(self):
         """Run the application"""
 
-        self.process()
+        self.collect_statistics()
+        self.compute_support()
+        json_data = self.jsonify()
+        print(json.dumps(json_data))
+
 
     def get_next_contentitem(self) -> Iterable[dict]:
         """
@@ -199,13 +214,24 @@ class MainApplication(object):
                 contentitem = json.loads(line)
                 yield contentitem
 
-    def update_lid_counters(self, content_item: dict) -> None:
-        """Update the self.lid_counter structure with the most probable language"""
 
+    def update_lid_distributions(self, content_item: dict) -> None:
+        """Update the self.lid_distribution statistics
+
+        This includes all real LID systems as well as orig_lg. The ensemble predictions are not computed here.
+        """
+
+        # update stats for all normal LID systems
         for lid in self.lids:
             if lid in content_item and content_item[lid] is not None and len(content_item[lid]) > 0:
                 lang = content_item[lid][0]['lang']
                 self.lid_distributions[lid][lang] += 1
+
+        # update stats for orig_lg
+        orig_lg = content_item.get("orig_lg")
+        if orig_lg:
+            self.lid_distributions["orig_lg"][orig_lg] += 1
+
 
     def get_votes(self, content_item: dict) -> Optional[Counter]:
         """Return dictionary with boosted votes per language"""
@@ -239,58 +265,108 @@ class MainApplication(object):
 
         return decision
 
-    def collect_statistics(self) -> None:
-        """Collect and update statistics in self"""
 
-        for ci in self.get_next_contentitem():
-            if self.collection is None:
-                self.collection = ci["cid"][0:len(ci["cid"]) - 19]  #
-                log.warning(f"WARNING: Inferrd collection name from first content item as '{self.collection}'")
-            self.contentitem_type_distribution[ci.get("tp")] += 1
-            if ci["tp"] == "img":
+    def compute_support(self) -> None:
+        """Update support statistics in relative frequencies and their corresponding N
+
+        The following statistics are updated for a collection:
+        - self.lg_support
+        - self.lg_support_n
+        """
+
+
+        for lid in self.lids.union(("orig_lg",)):
+            # if a collection has no orig_lg or if none of the predicted outputs of a system got support
+            if not self.lg_support.get(lid):
                 continue
-            ci_len = ci.get("len", 0)
-            self.content_length_stats[ci_len] += 1
-            if ci_len < self.args.threshold_for_support:
-                log.warning(f"WARNING-SHORT-CONTENTITEM {ci['id']}\t{ci.get('len', 0)}")
-                continue
-            self.n += 1
-            self.update_lid_counters(ci)
-            orig_lg = ci.get("orig_lg")
-            self.lid_distributions['orig_lg'][orig_lg] += 1
-
-            decision = self.get_votes(ci)
-            if decision is None:
-                lang = None
-
-            else:
-                lang, score = decision.most_common(1)[0]
-                if len(decision) > 1 and decision.most_common(2)[1][1] == score:
-                    log.warning(f"SCORE-TIE in decision {decision}")
-                    lang = None
-                log.debug(f"lang={lang} score={score}")
-
-            self.lid_distributions['ensemble'][lang] += 1
-
-            if orig_lg is not None:
-                if lang == orig_lg:
-                    self.orig_lg_support[lang] += 1
+            # turn support distributions into relative frequencies
+            for lang in self.lg_support[lid]:
+                self.lg_support_n[lid][lang] = self.lid_distributions[lid][lang]
+                self.lg_support[lid][lang] = round(self.lg_support[lid][lang] / self.lg_support_n[lid][lang], self.args.round_ndigits)
 
         try:
-            self.orig_lg_n = sum(count for key, count in self.lid_distributions['orig_lg'].items() if key is not None)
-            self.overall_orig_lg_support = round(sum(self.orig_lg_support.values()) / self.orig_lg_n,
+            orig_lg_n = sum(count for (key, count) in self.lid_distributions['orig_lg'].items() if key is not None)
+            self.overall_orig_lg_support = round(sum(self.lg_support_n["orig_lg"].values()) / orig_lg_n,
                                                  self.args.round_ndigits)
         except ZeroDivisionError:
             self.overall_orig_lg_support = None
 
-        for lang in self.orig_lg_support:
-            self.orig_lg_support[lang] = round(self.orig_lg_support[lang] / self.lid_distributions["orig_lg"][lang],
-                                               self.args.round_ndigits)
+        #for lang in self.orig_lg_support:
+        #    self.orig_lg_support[lang] = round(self.orig_lg_support[lang] / self.lid_distributions["orig_lg"][lang],
+                                               #self.args.round_ndigits)
 
         for lid in self.lid_distributions:
             update_relfreq(self.lid_distributions[lid], n=self.n, ndigits=self.args.round_ndigits)
 
         self.dominant_language = self.lid_distributions['ensemble'].most_common(1)[0][0]
+
+
+    def collect_statistics(self) -> None:
+        """Collect and update statistics in self
+
+        The following statistics are updated for a collection:
+
+        - self.content_item_type_distribution
+        - self.content_length_stats
+        - self.lid_distributions
+        - self.n
+        - self.lg_support
+        """
+
+        for ci in self.get_next_contentitem():
+
+            # we can infer the collection name from impresso content item naming schema
+            if self.collection is None:
+                self.collection = ci["cid"][0:len(ci["cid"]) - 19]  #
+                log.warning(f"WARNING: Inferrd collection name from first content item as '{self.collection}'")
+
+            # update content type statistics
+            self.contentitem_type_distribution[ci.get("tp")] += 1
+            if ci["tp"] == "img":
+                continue
+
+            # update content item length statistics and ignore content items without content
+            ci_len = ci.get("len", 0)
+            self.content_length_stats[ci_len] += 1
+            if ci_len < self.args.threshold_for_support:
+                log.warning(f"WARNING-SHORT-CONTENTITEM {ci['id']}\t{ci.get('len', 0)}")
+                continue
+
+            # update counter for content item with textual content
+            self.n += 1
+
+            # update lid systems counts (including orig_lg)
+            self.update_lid_distributions(ci)
+
+            # compute the ensemble voting decision (if any)
+            decision = self.get_votes(ci)
+            if decision is None:
+                lang = None
+            else:
+                lang, score = decision.most_common(1)[0]
+                log.debug(f"lang={lang} score={score}")
+                if len(decision) > 1 and decision.most_common(2)[1][1] == score:
+                    log.warning(f"SCORE-TIE in decision {decision}")
+                    # we don't take any decision in the case of a tie
+                    lang = None
+
+            # update the ensemble statistics
+            if lang is not None:
+                self.lid_distributions['ensemble'][lang] += 1
+
+            # update the statistics on the support of the ensemble prediction for individual LID predictions
+            for lid in self.lids:
+                lid_lg_info = ci.get(lid)
+                if lid_lg_info and len(lid_lg_info) > 0:
+                    lid_lg = lid_lg_info[0]["lang"]
+                    if lid_lg == lang:
+                        self.lg_support[lid][lang] += 1
+            # update the orig_lg support statistics
+            orig_lg = ci.get("orig_lg")
+            if orig_lg:
+                if lang == orig_lg:
+                    self.lg_support["orig_lg"][lang] += 1
+
 
     def jsonify(self) -> dict:
         """Return JSON string representation of relevant statistics"""
@@ -302,13 +378,6 @@ class MainApplication(object):
                 json_data[attr] = list(json_data[attr])
 
         return json_data
-
-    def process(self):
-        """Process all jsonl entries"""
-
-        self.collect_statistics()
-        json_data = self.jsonify()
-        print(json.dumps(json_data))
 
 
 if __name__ == '__main__':
