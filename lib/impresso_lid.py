@@ -75,21 +75,17 @@ class LanguageIdentifier:
     :param type collection_stats: Content of the file provided with collection_json_stats.
     :param Set[str] lids: Set of LID systems predict language/probability pairs.
         Therefore, orig_lg is not seen as LID system as it "predicts" only a single language if any.
-
-    :param Set[str] boosted_lids: Subset of LIDs that are boosted by a boost factor.
-    :param Set[str] double_boosted_lids: Subset of already boosted LIDs that get a double boost.
-    :param float boost_factor: Description of parameter `boost_factor`.
-
+    :param float weight_lb_impresso_ft: voting weight for impresso_ft predicting Luxembourgish.
     :param float minimal_lid_probability: Minimal probability for a LID decision to be considered a vote.
     :param int minimal_text_length: threshold for text length in characters to apply automatic language identification.
     :param float threshold_confidence_orig_lg: Ignore original language information when below this confidence threshold.
-    :param Optional[Set[str]] admissible_languages: Limit languages for the ensemble decisions.
+    :param Optional[Set[str]] admissible_languages: Limit languages in the ensemble decisions.
         If None, no restrictions are applied.
 
-    :attr type version: Version of the collection script.
-    :attr type attrs_for_json: Defines all attributes of this data object that
-    :attr type decision_distribution: Distribution over rules to predict a language.
-    :attr type results: Collection of content items with their identified language.
+    :attr str version: Version of the collection script.
+    :attr list attrs_for_json: Defines list of attributes to copy over from stage 1 content items' JSON.
+    :attr Counter decision_distribution: Distribution over rules to predict a language.
+    :attr list results: Collection of content items with their identified language.
 
     """
 
@@ -99,20 +95,16 @@ class LanguageIdentifier:
         outfile: str,
         collection_json_stats: str,
         lids: Set[str],
-        boosted_lids: Set[str],
-        double_boosted_lids: Set[str],
-        boost_factor: float,
+        weight_lb_impresso_ft: float,
         minimal_lid_probability: float,
         minimal_text_length: int,
         threshold_confidence_orig_lg: float,
         admissible_languages: Optional[Set[str]],
     ):
 
-        self.version = __version__
-        """Version of the impresso lid script"""
+        self.version: str = __version__
 
-        self.attrs_from_content_item = ["id", "tp", "len", "orig_lg", "alphabetical_ratio"]
-        """Defines list of attributes to copy over from stage 1 content items' JSON"""
+        self.attrs_from_content_item: list = ["id", "tp", "len", "orig_lg", "alphabetical_ratio"]
 
         self.infile: str = infile
 
@@ -120,31 +112,19 @@ class LanguageIdentifier:
 
         self.lids: Set[str] = set(lid for lid in lids if lid != "orig_lg")
 
-        self.lids = set(lids)
-
         if len(self.lids) < 1:
             log.error("No LID models provided. At least one language identificator needed.")
             exit(2)
 
-        self.boosted_lids: Set[str] = set(
-            lid for lid in boosted_lids if lid == "orig_lg" or lid in self.lids
-        )
-        """Set of LIDs that are boosted by a boost factor"""
-
-        self.double_boosted_lids: Set[str] = set(
-            lid for lid in double_boosted_lids if lid == "orig_lg" or lid in self.boosted_lids
-        )
-
-        self.boost_factor: float = boost_factor
+        self.weight_lb_impresso_ft: float = weight_lb_impresso_ft
 
         self.admissible_languages: Optional[Set[str]] = (
             set(admissible_languages) if admissible_languages else None
         )
-        """Set of admissible language: If None, no restrictions are applied"""
 
-        self.threshold_confidence_orig_lg = threshold_confidence_orig_lg
-        self.minimal_lid_probability = minimal_lid_probability
-        self.minimal_text_length = minimal_text_length
+        self.threshold_confidence_orig_lg: float = threshold_confidence_orig_lg
+        self.minimal_lid_probability: float = minimal_lid_probability
+        self.minimal_text_length: float = minimal_text_length
 
         self.decision_distribution = Counter()
         self.collection_stats = read_json(collection_json_stats)
@@ -177,7 +157,7 @@ class LanguageIdentifier:
         return result
 
     def get_votes(self, content_item: dict) -> Optional[Counter]:
-        """Return dictionary with boosted votes per language"""
+        """Return dictionary with weighted votes per language"""
 
         # for each language key we have a list of tuples (LID, vote_score)
         votes = defaultdict(list)
@@ -197,11 +177,9 @@ class LanguageIdentifier:
                         if lang_support:
                             vote_score = prob * lang_support
 
-                            # single or double boost for particular LID
-                            if lid in self.boosted_lids:
-                                vote_score *= self.boost_factor
-                                if lid in self.double_boosted_lids:
-                                    vote_score *= self.boost_factor
+                            # special weight for impresso_ft when predicting Luxembourgish
+                            if lid == "impresso_ft" and lang == "lb":
+                                vote_score *= self.weight_lb_impresso_ft
 
                             votes[lang].append((lid, vote_score))
 
@@ -346,18 +324,18 @@ if __name__ == "__main__":
         help="path to folder where processed .json files should be saved",
     )
     parser.add_argument(
-        "--boost-factor",
-        metavar="B",
-        default=1.5,
+        "--weight-lb-impresso-ft",
+        metavar="W",
+        default=3,
         type=float,
-        help="Boost factor for boosted lids (default %(default)s)",
+        help="special voting weight for impresso_ft predicting Luxembourgish (default %(default)s)",
     )
     parser.add_argument(
         "--minimal-lid-probability",
         metavar="P",
         default=0.5,
         type=float,
-        help="Minimal probability for a LID decision to be considered a vote (default %(default)s)",
+        help="minimal probability for a LID decision to be considered a vote (default %(default)s)",
     )
     parser.add_argument(
         "-m",
@@ -371,23 +349,7 @@ if __name__ == "__main__":
         nargs="+",
         default=[],
         metavar="LID",
-        help="Names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here!",
-    )
-
-    parser.add_argument(
-        "--boosted-lids",
-        nargs="+",
-        default=[],
-        metavar="LID",
-        help="Subset of LID systems or orig_lg that are boosted by a factor if they have support from any other"
-        "system or orig_lg.",
-    )
-    parser.add_argument(
-        "--double-boosted-lids",
-        nargs="+",
-        default=[],
-        metavar="LID",
-        help="Subset of boosted lid systems that get a double boost due to their superior performance",
+        help="names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here!",
     )
 
     parser.add_argument(
@@ -395,8 +357,8 @@ if __name__ == "__main__":
         nargs="+",
         default=None,
         metavar="L",
-        help="""Names of
-        (default: %(default)s)""",
+        help="Names of languages considered in the ensemble decisions. "
+        "If None, no restrictions are applied (default: %(default)s)",
     )
 
     arguments = parser.parse_args()
