@@ -66,6 +66,9 @@ BUILD_DIR ?= build
 # write access is needed here
 LID_BUILD_DIR ?= $(BUILD_DIR)/$(LID_VERSION)
 
+# all LID systems to use 
+LID_SYSTEMS ?= langid langdetect impresso_ft wp_ft
+
 # fast text models
 IMPPRESSO_FASTTEXT_MODEL ?= models/fasttext/impresso-lid.bin
 WIKIPEDIA_FASTTEXT_MODEL ?= models/fasttext/lid.176.bin
@@ -108,9 +111,11 @@ $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
 	    else { touch $@.running ; echo "$$(date -Iseconds) Building $@ now..." ; }  ; \
 	   fi \
 	&& python lib/language_identification.py \
+	    --lids $(LID_SYSTEMS) \
 	    --impresso-ft $(IMPPRESSO_FASTTEXT_MODEL) \
 	    --wp-ft $(WIKIPEDIA_FASTTEXT_MODEL) \
 	    --minimal-text-length $(MINIMAL_TEXT_LENGTH) \
+	    --round-ndigits 3 \
 	    --infile $< \
 	    --outfile $@.working.jsonl.bz2 \
 	    $(DEBUG_OPTION) \
@@ -138,7 +143,7 @@ $(eval $(call debug_variable,impresso-lid-stage1b-files))
 $(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%/
 	python lib/collection_statistics.py \
 	   --collection $* \
-	   --lids langid langdetect impresso_ft wp_ft \
+	   --lids $(LID_SYSTEMS) \
 	   --boosted-lids orig_lg impresso_ft \
 	   --minimal-text-length 200 \
 	   --boost-factor 1.5 \
@@ -174,10 +179,11 @@ impresso-lid-stage2-target: impresso-lid-stage1b-target $(impresso-lid-stage2-fi
 $(LID_BUILD_DIR)/stage2/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 	mkdir -p $(@D) \
 	&& python lib/impresso_lid.py \
-	 --lids langid langdetect impresso_ft wp_ft \
-	 --weight-lb-impresso-ft 3
+	 --lids $(LID_SYSTEMS) \
+	 --weight-lb-impresso-ft 3 \
+	 --minimal-voting-score 0.5 \
 	 --minimal-text-length $(MINIMAL_TEXT_LENGTH) \
-	 --collection-json-stats $(patsubst %/,%.stats.json,$(subst /stage2,/stage1,$(dir $@))) \
+	 --collection-stats-filename $(patsubst %/,%.stats.json,$(subst /stage2,/stage1,$(dir $@))) \
 	 --infile $< \
 	 --outfile $@.working.jsonl.bz2 \
      $(DEBUG_OPTION) \
