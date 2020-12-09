@@ -45,7 +45,7 @@ import datetime
 import json
 import logging
 from collections import Counter, defaultdict
-from typing import Iterable, Optional, Set
+from typing import Iterable, Optional, Set, List
 
 import jsonlines
 from smart_open import open
@@ -66,18 +66,18 @@ def read_json(path: str) -> dict:
         return json.load(f)
 
 
-class LanguageIdentifier:
+class ImpressoLanguageIdentifier(object):
     """Identify language for each content item using ensemble decision
 
     :param str infile: JSON file with language predictions per content item.
     :param str outfile: Path to folder where processed JSON files should be saved.
-    :param type collection_json_stats: JSON file with aggregated statistics per collection.
-    :param type collection_stats: Content of the file provided with collection_json_stats.
+    :param str collection_stats_filename: JSON file with aggregated statistics per collection. Read in into the attribute collection_stats
     :param Set[str] lids: Set of LID systems predict to language/probability pairs.
         Therefore, orig_lg is not seen as LID system as it "predicts" only a single language if any.
     :param float weight_lb_impresso_ft: voting weight for impresso_ft predicting Luxembourgish.
     :param float minimal_lid_probability: Minimal probability for a LID decision to be considered a vote.
     :param int minimal_text_length: threshold for text length in characters to apply automatic language identification.
+    :param float minimal_voting_score: minimal vote score for voting decision to be accepted
     :param float threshold_confidence_orig_lg: Ignore original language information when below this confidence threshold.
     :param Optional[Set[str]] admissible_languages: Limit languages in the ensemble decisions.
         If None, no restrictions are applied.
@@ -93,18 +93,25 @@ class LanguageIdentifier:
         self,
         infile: str,
         outfile: str,
-        collection_json_stats: str,
+        collection_stats_filename: str,
         lids: Set[str],
         weight_lb_impresso_ft: float,
         minimal_lid_probability: float,
         minimal_text_length: int,
+        minimal_voting_score: float,
         threshold_confidence_orig_lg: float,
         admissible_languages: Optional[Set[str]],
     ):
 
         self.version: str = __version__
 
-        self.attrs_from_content_item: list = ["id", "tp", "len", "orig_lg", "alphabetical_ratio"]
+        self.attrs_from_content_item: list = [
+            "id",
+            "tp",
+            "len",
+            "orig_lg",
+            "alphabetical_ratio",
+        ]
 
         self.infile: str = infile
 
@@ -113,7 +120,9 @@ class LanguageIdentifier:
         self.lids: Set[str] = set(lid for lid in lids if lid != "orig_lg")
 
         if len(self.lids) < 1:
-            log.error("No LID models provided. At least one language identificator needed.")
+            log.error(
+                "No LID models provided. At least one language identificator needed."
+            )
             exit(2)
 
         self.weight_lb_impresso_ft: float = weight_lb_impresso_ft
@@ -125,10 +134,11 @@ class LanguageIdentifier:
         self.threshold_confidence_orig_lg: float = threshold_confidence_orig_lg
         self.minimal_lid_probability: float = minimal_lid_probability
         self.minimal_text_length: float = minimal_text_length
+        self.minimal_voting_score: float = minimal_voting_score
 
-        self.decision_distribution = Counter()
-        self.collection_stats = read_json(collection_json_stats)
-        self.results = []
+        self.decision_distribution: Counter = Counter()
+        self.collection_stats: dict = read_json(collection_stats_filename)
+        self.results: List[dict] = []
 
     def run(self):
         self.classify_language_per_item()
@@ -165,13 +175,22 @@ class LanguageIdentifier:
         for lid in self.lids:
 
             # filter on LID systems
-            if lid in content_item and content_item[lid] is not None and len(content_item[lid]) > 0:
+            if (
+                lid in content_item
+                and content_item[lid] is not None
+                and len(content_item[lid]) > 0
+            ):
                 lang, prob = content_item[lid][0]["lang"], content_item[lid][0]["prob"]
                 # filter on languages
-                if self.admissible_languages is None or lang in self.admissible_languages:
+                if (
+                    self.admissible_languages is None
+                    or lang in self.admissible_languages
+                ):
                     # filter on probability
                     if prob >= self.minimal_lid_probability:
-                        lang_support = self.collection_stats["lg_support"][lid].get(lang) or 0.0
+                        lang_support = (
+                            self.collection_stats["lg_support"][lid].get(lang) or 0.0
+                        )
 
                         # weight vote on trustworthiness of a LID predicting a particular language
                         if lang_support:
@@ -206,14 +225,13 @@ class LanguageIdentifier:
                     ),
                 }
             )
+            # copy relevant attributes from stage 1 for each content item
+            for attr in self.attrs_from_content_item:
+                jinfo[attr] = copy.copy(old_jinfo.get(attr))
 
             if jinfo["tp"] == "img":
                 self.results.append(jinfo)
                 continue
-
-            # copy relevant attributes from stage 1 for each content item
-            for attr in self.attrs_from_content_item:
-                jinfo[attr] = copy.copy(old_jinfo.get(attr))
 
             trust_orig_lg = False
             if self.collection_stats.get("overall_orig_lg_support"):
@@ -235,7 +253,9 @@ class LanguageIdentifier:
                     old_jinfo["orig_lg"]
                 ]
                 # use the original language information only
-                old_jinfo["orig_lg"] = [{"lang": old_jinfo["orig_lg"], "prob": orig_lg_support}]
+                old_jinfo["orig_lg"] = [
+                    {"lang": old_jinfo["orig_lg"], "prob": orig_lg_support}
+                ]
 
             # rule 2
             all_lid_preds = self.get_best_lid(old_jinfo)
@@ -250,7 +270,9 @@ class LanguageIdentifier:
                 continue
 
             all_but_impresso_ft_lid_languages = set(
-                all_lid_preds[lid]["lang"] for lid in all_lid_preds if lid != "impresso_ft"
+                all_lid_preds[lid]["lang"]
+                for lid in all_lid_preds
+                if lid != "impresso_ft"
             )
 
             # rule 2b: off-the-shelf LID agree on language other than DE or FR
@@ -263,7 +285,7 @@ class LanguageIdentifier:
                     self.results.append(jinfo)
                     continue
 
-            # rule 2c: set domininant language of collection for very short articles
+            # rule 2c: set dominant language of collection for very short articles
             if jinfo["len"] < 50:
                 jinfo["lg"] = dominant_lg
                 jinfo["lg_decision"] = "dominant-by-len"
@@ -273,6 +295,14 @@ class LanguageIdentifier:
 
             # rule 3: get decision by ensemble voting for less obvious cases
             votes = self.get_votes(old_jinfo)
+            jinfo["votes"] = votes.most_common()
+            if votes.most_common(n=1)[0][1] < self.minimal_voting_score:
+                jinfo["lg"] = dominant_lg
+                jinfo["lg_decision"] = "dominant-by-lowvote"
+                self.decision_distribution["dominant-by-lowvote"] += 1
+                self.results.append(jinfo)
+                continue
+
             log.critical(f"VOTES={votes} {jinfo}")
             jinfo["lg"] = votes.most_common(n=1)[0][0]
             jinfo["lg_decision"] = "voting"
@@ -285,7 +315,9 @@ class LanguageIdentifier:
 if __name__ == "__main__":
     import argparse
 
-    DESCRIPTION = "Classify language of impresso content item given all collected evidence"
+    DESCRIPTION = (
+        "Classify language of impresso content items given all collected evidence"
+    )
 
     parser = argparse.ArgumentParser(description=DESCRIPTION)
     parser.add_argument("-l", "--logfile", help="write log to FILE", metavar="FILE")
@@ -299,9 +331,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-C",
-        "--collection-json-stats",
+        "--collection-stats-filename",
         type=str,
-        help="collection statistics JSON (default %(default)s)",
+        help="collection statistics JSON file (default %(default)s)",
     )
 
     parser.add_argument(
@@ -338,6 +370,14 @@ if __name__ == "__main__":
         help="minimal probability for a LID decision to be considered a vote (default %(default)s)",
     )
     parser.add_argument(
+        "--minimal-voting-score",
+        metavar="W",
+        default=0.5,
+        type=float,
+        help="minimal vote score for voting decision to be accepted (default %(default)s)",
+    )
+
+    parser.add_argument(
         "-m",
         "--minimal-text-length",
         default=20,
@@ -351,7 +391,6 @@ if __name__ == "__main__":
         metavar="LID",
         help="names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here!",
     )
-
     parser.add_argument(
         "--admissible-languages",
         nargs="+",
@@ -363,10 +402,30 @@ if __name__ == "__main__":
 
     arguments = parser.parse_args()
 
-    log_levels = [logging.CRITICAL, logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG]
+    log_levels = [
+        logging.CRITICAL,
+        logging.ERROR,
+        logging.WARNING,
+        logging.INFO,
+        logging.DEBUG,
+    ]
     logging.basicConfig(
-        level=log_levels[arguments.verbose], format="%(asctime)-15s %(levelname)s: %(message)s"
+        level=log_levels[arguments.verbose],
+        format="%(asctime)-15s %(levelname)s: %(message)s",
     )
-
+    language_identifier_args = {
+        "infile",
+        "outfile",
+        "collection_stats_filename",
+        "lids",
+        "weight_lb_impresso_ft",
+        "minimal_lid_probability",
+        "minimal_text_length",
+        "threshold_confidence_orig_lg",
+        "minimal_voting_score",
+        "admissible_languages",
+    }
     # launching application ...
-    LanguageIdentifier(**arguments).run()
+    ImpressoLanguageIdentifier(
+        **{k: v for k, v in vars(arguments).items() if k in language_identifier_args}
+    ).run()
