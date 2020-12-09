@@ -290,16 +290,17 @@ class LanguageIdentifier(object):
                 log.error(f"PROBLEM WITH {sys.exc_info()} {jinfo} {j}")
                 exit(1)
 
-    def write_output(self):
+    def write_output(self) -> None:
         """
-        Write results to json.
+        Write results to jsonline output file.
         """
+
         with open(self.outfile, mode="w", encoding="utf-8") as f_out:
             writer = jsonlines.Writer(f_out)
             writer.write_all(self.results)
 
     def next_contentitem(self) -> Iterable[dict]:
-        """ "
+        """
         Yield each contentitem.
         """
 
