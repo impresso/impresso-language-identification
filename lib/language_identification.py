@@ -7,18 +7,18 @@ Compute language identification classes and their probabilities with different L
 
 __version__ = "2020.11.30"
 
+import datetime
 import logging
 import re
 import sys
-import datetime
 from collections import Counter
-from typing import Dict, List, Optional, Iterable
+from typing import Dict, List, Optional, Iterable, Set
 
 import fasttext
 import jsonlines
 import langdetect
 from langdetect.lang_detect_exception import LangDetectException
-from langid.langid import LanguageIdentifier, model
+from langid import langid
 from smart_open import open
 
 log = logging.getLogger(__name__)
@@ -62,14 +62,20 @@ def average_distribution(listoflist: List[List]) -> List[Dict[str, float]]:
     for lang in counter:
         counter[lang] = counter[lang] / total
 
-    result = [{"lang": lang, "prob": round(prob, 2)} for lang, prob in counter.most_common()]
+    result = [
+        {"lang": lang, "prob": round(prob, 2)} for lang, prob in counter.most_common()
+    ]
 
-    log.debug(f"DEBUG-LANGDETECT-DIVERSITY Length: {len(listoflist)} Predictions: {listoflist}")
+    log.debug(
+        f"DEBUG-LANGDETECT-DIVERSITY Length: {len(listoflist)} Predictions: {listoflist}"
+    )
 
     return result
 
 
-def avg_langdetect_lid(text: str, n: int, threshold: float = 0.95) -> List[Dict[str, float]]:
+def avg_langdetect_lid(
+        text: str, n: int, threshold: float = 0.95
+) -> List[Dict[str, float]]:
     """Compute averaged lid score from n samples using Langdetect.
 
     For efficiency, drawing stops if the top-most language has a higher probability than threshold
@@ -109,14 +115,17 @@ def fasttext_lid(text: str, ft_model) -> List[Dict[str, float]]:
 
     labels, probs = ft_model.predict(text, k=3, threshold=0.005)
     result = [
-        {"lang": lang.replace("__label__", ""), "prob": float(min(1, round(probs[i], 2)))}
+        {
+            "lang": lang.replace("__label__", ""),
+            "prob": float(min(1, round(probs[i], 2))),
+        }
         for (i, lang) in enumerate(labels)
     ]
 
     return result
 
 
-class LanguageInfer:
+class LanguageIdentifier(object):
     """Predict languages for content items.
 
     :param str infile: Path to input file in impresso bz2 rebuilt format.
@@ -147,8 +156,10 @@ class LanguageInfer:
         self.wp_ft: str = wp_ft
         self.minimal_text_length: int = minimal_text_length
 
-        self.lids: list = lids
-        log.info(f"Predicting with the following off-the-shelve LID systems: {', '.join(lids)}.")
+        self.lids: Set[str] = set(lids)
+        log.info(
+            f"Predicting with the following off-the-shelve LID systems: {', '.join(lids)}."
+        )
 
         self.results = []
 
@@ -167,7 +178,9 @@ class LanguageInfer:
         """
 
         # initialize with langid lid classifier
-        langid_lid = LanguageIdentifier.from_modelstring(model, norm_probs=True)
+        langid_lid = langid.LanguageIdentifier.from_modelstring(
+            langid.model, norm_probs=True
+        )
         # we no longer restrict it to certain languages
         # langid_lid.set_languages(['de', 'fr', 'en', 'lb'])
 
@@ -190,7 +203,9 @@ class LanguageInfer:
                     {
                         "tp": j["tp"],
                         "id": j["id"],
-                        "len": len(j["ft"]) if "ft" in j and isinstance(j["ft"], str) else 0,
+                        "len": len(j["ft"])
+                        if "ft" in j and isinstance(j["ft"], str)
+                        else 0,
                         "orig_lg": j["lg"] if "lg" in j else None,
                         "version": __version__,
                         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(
@@ -232,7 +247,9 @@ class LanguageInfer:
                     # fasttext with our own de/fr/lb model
                     if "impresso_ft" in self.lids and impresso_ft_model is not None:
                         try:
-                            jinfo["impresso_ft"] = fasttext_lid(j["ft"], impresso_ft_model)
+                            jinfo["impresso_ft"] = fasttext_lid(
+                                j["ft"], impresso_ft_model
+                            )
                         except:
                             jinfo["impresso_ft"] = None
                             log.error(f"IMPRESSO-FT-ERROR-WITH {sys.exc_info()[0]}")
@@ -279,7 +296,9 @@ if __name__ == "__main__":
     DESCRIPTION = "Compute language identification classes and their probabilities with different LID systems."
     EPILOG = "All tools use two-letter ISO 639-1 codes, except wp_ft which recognizes additional languages identifiable only by 3 letter codes."
     parser = argparse.ArgumentParser(description=DESCRIPTION, epilog=EPILOG)
-    parser.add_argument("-l", "--logfile", dest="logfile", help="write log to FILE", metavar="FILE")
+    parser.add_argument(
+        "-l", "--logfile", dest="logfile", help="write log to FILE", metavar="FILE"
+    )
     parser.add_argument(
         "-v",
         "--verbose",
@@ -293,13 +312,13 @@ if __name__ == "__main__":
         "-i",
         "--infile",
         default="/dev/stdin",
-        help="path to input file in impresso bz2 rebuilt format",
+        help="path to input file in impresso bz2 rebuilt format (default %(default)s)",
     )
     parser.add_argument(
         "-o",
         "--outfile",
         default="/dev/stdout",
-        help="path to output file for impresso lid json format",
+        help="path to output file for impresso lid json format (default %(default)s)",
     )
     parser.add_argument(
         "-m",
@@ -319,7 +338,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--impresso-ft",
         default=None,
-        help="binary fasttext LID impresso model labeled impresso_ft in the output",
+        help="binary fasttext LID impresso model labeled impresso_ft in the output)",
         metavar="FILE",
     )
     parser.add_argument(
@@ -331,10 +350,28 @@ if __name__ == "__main__":
 
     arguments = parser.parse_args()
 
-    log_levels = [logging.CRITICAL, logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG]
+    log_levels = [
+        logging.CRITICAL,
+        logging.ERROR,
+        logging.WARNING,
+        logging.INFO,
+        logging.DEBUG,
+    ]
 
     logging.basicConfig(
-        level=log_levels[arguments.verbose], format="%(asctime)-15s %(levelname)s: %(message)s"
+        level=log_levels[arguments.verbose],
+        format="%(asctime)-15s %(levelname)s: %(message)s",
     )
 
-    LanguageInfer(**arguments).run()
+    language_identifier_args = {
+        "infile",
+        "outfile",
+        "impresso_ft",
+        "wp_ft",
+        "minimal_text_length",
+        "lids",
+    }
+
+    LanguageIdentifier(
+        **{k: v for k, v in vars(arguments).items() if k in language_identifier_args}
+    ).run()
