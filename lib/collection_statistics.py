@@ -60,15 +60,15 @@ class AggregatorLID:
     :param Set[str] lids: Set of LID systems predict language/probability pairs.
         Therefore, orig_lg is not seen as LID system as it "predicts" only a single language if any.
     :param Set[str] boosted_lids: Set of LIDs that are boosted by a boost factor.
-    :param float boost_factor: Boost factor applied to boosted LIDS if the have
+    :param float boost_factor: Boost factor applied to boosted LIDS if they have
         support from at least another LID. The idea is that on their own some of
         the LIDs or the `orig_lg` can be pretty wrong. If they have at least a
-        support from a another system the confidence into their decision grows considerably.
+        support from another system the confidence into their decision grows considerably.
     :param Optional[Set[str]] admissible_languages: Limit languages in the ensemble decisions.
         If None, no restrictions are applied.
     :param float minimal_vote_score: Minimal vote score from ensemble to reach a decision.
-    :param float minimal_lid_probability: Minimal probability for a LID decision to be considered a vote.
-    :param int threshold_length: Threshold on article length in chars for computing `orig_lg` support.
+    :param float minimal_lid_probability: Minimal probability from a LID decision to be considered a vote.
+    :param int minimal_text_length: Threshold on article length in chars for computing LID support by ensemble.
     :param int round_ndigits: Number of decimal places in the output.
 
     :attr str version: Version of the collection script.
@@ -104,14 +104,14 @@ class AggregatorLID:
         boost_factor: float,
         minimal_vote_score: float,
         minimal_lid_probability: float,
-        threshold_length: int,
+        minimal_text_length: int,
         round_ndigits: int,
         admissible_languages: Optional[Set[str]],
     ):
 
         self.version = __version__
 
-        self.attrs_for_json: list= [
+        self.attrs_for_json: list = [
             # configured information
             "collection",
             "lids",
@@ -137,7 +137,9 @@ class AggregatorLID:
         self.lids: Set[str] = set(lid for lid in lids if lid != "orig_lg")
 
         if len(self.lids) < 1:
-            log.error("No LID models provided. At least one language identificator needed.")
+            log.error(
+                "No LID models provided. At least one language identificator needed."
+            )
             exit(2)
 
         self.total_orig_support_ratio: Optional[float] = None
@@ -158,7 +160,7 @@ class AggregatorLID:
 
         self.minimal_lid_probability: float = minimal_lid_probability
 
-        self.threshold_length: int = threshold_length
+        self.minimal_text_length: int = minimal_text_length
 
         self.round_ndigits: int = round_ndigits
 
@@ -172,7 +174,9 @@ class AggregatorLID:
 
         self.dominant_language: Optional[str] = None
 
-        self.lg_support: dict = {lid: Counter() for lid in self.lids.union(("orig_lg",))}
+        self.lg_support: dict = {
+            lid: Counter() for lid in self.lids.union(("orig_lg",))
+        }
 
         self.lid_distributions: dict = {
             lid: Counter() for lid in self.lids.union(("orig_lg", "ensemble"))
@@ -191,7 +195,9 @@ class AggregatorLID:
 
         """
 
-        return datetime.datetime.now(datetime.timezone.utc).isoformat(sep="T", timespec="seconds")
+        return datetime.datetime.now(datetime.timezone.utc).isoformat(
+            sep="T", timespec="seconds"
+        )
 
     def run(self):
         """Run the application"""
@@ -230,7 +236,11 @@ class AggregatorLID:
 
         # update stats for all regular LID systems
         for lid in self.lids:
-            if lid in content_item and content_item[lid] is not None and len(content_item[lid]) > 0:
+            if (
+                lid in content_item
+                and content_item[lid] is not None
+                and len(content_item[lid]) > 0
+            ):
                 lang = content_item[lid][0]["lang"]
                 self.lid_distributions[lid][lang] += 1
 
@@ -253,22 +263,44 @@ class AggregatorLID:
 
         if content_item.get("orig_lg"):
             votes[content_item.get("orig_lg")].append(
-                ("orig_lg", (1 if "orig_lg" not in self.boosted_lids else self.boost_factor))
+                (
+                    "orig_lg",
+                    (1 if "orig_lg" not in self.boosted_lids else self.boost_factor),
+                )
             )
         for lid in self.lids:
-            if lid in content_item and content_item[lid] is not None and len(content_item[lid]) > 0:
-                lang, prob = content_item.get(lid)[0]["lang"], content_item.get(lid)[0]["prob"]
-                if self.admissible_languages is None or lang in self.admissible_languages:
+            if (
+                lid in content_item
+                and content_item[lid] is not None
+                and len(content_item[lid]) > 0
+            ):
+                lang, prob = (
+                    content_item.get(lid)[0]["lang"],
+                    content_item.get(lid)[0]["prob"],
+                )
+                if (
+                    self.admissible_languages is None
+                    or lang in self.admissible_languages
+                ):
                     if prob >= self.minimal_lid_probability:
                         votes[lang].append(
-                            (lid, (1 if lid not in self.boosted_lids else self.boost_factor))
+                            (
+                                lid,
+                                (
+                                    1
+                                    if lid not in self.boosted_lids
+                                    else self.boost_factor
+                                ),
+                            )
                         )
 
         # for each language key we have a voting score across systems
         # consider boost for a particular language only when at least another system supports prediction
         decision = Counter()
         for lang, votes_lang in votes.items():
-            decision[lang] = sum((boost if len(votes_lang) > 1 else 1) for (_, boost) in votes_lang)
+            decision[lang] = sum(
+                (boost if len(votes_lang) > 1 else 1) for (_, boost) in votes_lang
+            )
             # ignore predictions a score below the threshold after boosting
             if decision[lang] < self.minimal_vote_score:
                 del decision[lang]
@@ -316,7 +348,7 @@ class AggregatorLID:
             # update statistics on content item length and ignore very short items
             ci_len = ci.get("len", 0)
             self.content_length_stats[ci_len] += 1
-            if ci_len < self.threshold_length:
+            if ci_len < self.minimal_text_length:
                 log.warning(
                     f"Ignore short content item with a length below threshold: {ci['id']}\t(length: {ci.get('len', 0)})"
                 )
@@ -389,13 +421,16 @@ class AggregatorLID:
                 if lang is not None
             )
             self.overall_orig_lg_support = round(
-                sum(self.lid_distributions["orig_lg"].values()) / orig_lg_n, self.round_ndigits
+                sum(self.lid_distributions["orig_lg"].values()) / orig_lg_n,
+                self.round_ndigits,
             )
         except ZeroDivisionError:
             self.overall_orig_lg_support = None
 
         for lid in self.lid_distributions:
-            update_relfreq(self.lid_distributions[lid], n=self.n, ndigits=self.round_ndigits)
+            update_relfreq(
+                self.lid_distributions[lid], n=self.n, ndigits=self.round_ndigits
+            )
 
         self.dominant_language = self.lid_distributions["ensemble"].most_common(1)[0][0]
 
@@ -442,7 +477,7 @@ if __name__ == "__main__":
         metavar="n",
         default=200,
         type=int,
-        help="threshold on article length in chars for computing orig_lg support (default %(default)s)",
+        help="threshold on article length in chars for computing support (default %(default)s)",
     )
     parser.add_argument(
         "--boost-factor",
@@ -471,7 +506,6 @@ if __name__ == "__main__":
         type=int,
         help="round floats in the output to n digits (default %(default)s)",
     )
-
     parser.add_argument(
         "infile",
         metavar="INPUT",
@@ -505,9 +539,31 @@ if __name__ == "__main__":
 
     arguments = parser.parse_args()
 
-    log_levels = [logging.CRITICAL, logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG]
+    log_levels = [
+        logging.CRITICAL,
+        logging.ERROR,
+        logging.WARNING,
+        logging.INFO,
+        logging.DEBUG,
+    ]
     logging.basicConfig(
-        level=log_levels[arguments.verbose], format="%(asctime)-15s %(levelname)s: %(message)s"
+        level=log_levels[arguments.verbose],
+        format="%(asctime)-15s %(levelname)s: %(message)s",
     )
 
-    AggregatorLID(**arguments).run()
+    aggregator_lid_args = {
+        "infile",
+        "collection",
+        "lids",
+        "boosted_lids",
+        "boost_factor",
+        "minimal_vote_score",
+        "minimal_lid_probability",
+        "minimal_text_length",
+        "round_ndigits",
+        "admissible_languages",
+    }
+
+    AggregatorLID(
+        **{k: v for k, v in vars(arguments).items() if k in aggregator_lid_args}
+    ).run()
