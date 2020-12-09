@@ -187,11 +187,11 @@ class AggregatorLID:
         self.content_length_stats: Counter = Counter()
 
     @property
-    def ts(self) -> datetime.datetime:
+    def ts(self) -> str:
         """Return ISO timestamp in impresso style.
 
         :return: A timestamp.
-        :rtype: datetime.datetime
+        :rtype: str
 
         """
 
@@ -205,7 +205,8 @@ class AggregatorLID:
         self.collect_statistics()
         self.compute_support()
         json_data = self.jsonify()
-        log.debug(f"Final JSON: {json.dumps(json_data)}")
+        print(json.dumps(json_data))
+
 
     def get_next_contentitem(self) -> Iterable[dict]:
         """Yield each content items.
@@ -507,13 +508,6 @@ if __name__ == "__main__":
         help="round floats in the output to n digits (default %(default)s)",
     )
     parser.add_argument(
-        "infile",
-        metavar="INPUT",
-        nargs="+",
-        type=str,
-        help="Input files of the format jsonl.bz2",
-    )
-    parser.add_argument(
         "--lids",
         nargs="+",
         default=[],
@@ -535,6 +529,13 @@ if __name__ == "__main__":
         metavar="L",
         help="Names of languages considered in the ensemble decisions. "
         "If None, no restrictions are applied (default: %(default)s)",
+    )
+    parser.add_argument(
+        "infile",
+        metavar="INPUT",
+        nargs="+",
+        type=str,
+        help="Input files of the format jsonl.bz2",
     )
 
     arguments = parser.parse_args()
