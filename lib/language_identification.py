@@ -5,14 +5,14 @@
 Compute language identification classes and their probabilities with different LID systems.
 """
 
-__version__ = "2020.11.30"
+__version__ = "2020.12.09"
 
 import datetime
 import logging
 import re
 import sys
 from collections import Counter
-from typing import Dict, List, Optional, Iterable, Set
+from typing import Dict, List, Optional, Iterable, Set, Union
 
 import fasttext
 import jsonlines
@@ -45,9 +45,12 @@ def alphabetical_ratio(text: str) -> Optional[float]:
     return len(filtered) / len_text
 
 
-def average_distribution(listoflist: List[List]) -> List[Dict[str, float]]:
+def average_distribution(
+    listoflist: List[List], round_ndigits: int = 9
+) -> List[Dict[str, Union[str, float]]]:
     """Return dictionary of averaged probabilities per language.
 
+    :param int round_ndigits: Number of decimal places for probabilities
     :param List[List] listoflist: Results of multiple language identification.
     :return: Dictionary with the averaged probabilities per language
     :rtype: List[Dict[str, float]]
@@ -63,7 +66,8 @@ def average_distribution(listoflist: List[List]) -> List[Dict[str, float]]:
         counter[lang] = counter[lang] / total
 
     result = [
-        {"lang": lang, "prob": round(prob, 2)} for lang, prob in counter.most_common()
+        {"lang": lang, "prob": round(prob, round_ndigits)}
+        for lang, prob in counter.most_common()
     ]
 
     log.debug(
@@ -74,12 +78,13 @@ def average_distribution(listoflist: List[List]) -> List[Dict[str, float]]:
 
 
 def avg_langdetect_lid(
-        text: str, n: int, threshold: float = 0.95
-) -> List[Dict[str, float]]:
+    text: str, n: int, threshold: float = 0.95, round_ndigits: int = 9
+) -> List[Dict[str, Union[str, float]]]:
     """Compute averaged lid score from n samples using Langdetect.
 
     For efficiency, drawing stops if the top-most language has a higher probability than threshold
 
+    :param int round_ndigits: Number of decimal places for probabilities.
     :param str text: Text to classify.
     :param int n: Number of samples.
     :param float threshold: Threshold for early-stopping of sampling.
@@ -95,10 +100,12 @@ def avg_langdetect_lid(
         if result[0].prob > threshold:
             break
 
-    return average_distribution(results)
+    return average_distribution(results, round_ndigits)
 
 
-def fasttext_lid(text: str, ft_model) -> List[Dict[str, float]]:
+def fasttext_lid(
+    text: str, ft_model, round_ndigits: int = 9
+) -> List[Dict[str, Union[str, float]]]:
     """
     Return results of a fasttext model.
 
@@ -117,7 +124,7 @@ def fasttext_lid(text: str, ft_model) -> List[Dict[str, float]]:
     result = [
         {
             "lang": lang.replace("__label__", ""),
-            "prob": float(min(1, round(probs[i], 2))),
+            "prob": float(min(1, round(probs[i], round_ndigits))),
         }
         for (i, lang) in enumerate(labels)
     ]
@@ -135,7 +142,7 @@ class LanguageIdentifier(object):
     :param int minimal_text_length: threshold for text length in characters to apply automatic language identification.
     :param Set[str] lids: Set of LID systems predict to language/probability pairs.
         Therefore, orig_lg is not seen as LID system as it "predicts" only a single language if any.    :attr type results: Description of parameter `results`.
-
+    :param int round_ndigits: Number of decimal places in the output.
     :attr list results: Collection of content items with the language prediction of various systems.
 
     """
@@ -148,6 +155,7 @@ class LanguageIdentifier(object):
         wp_ft: str,
         minimal_text_length: int,
         lids: list,
+        round_ndigits: int,
     ):
 
         self.infile: str = infile
@@ -160,7 +168,7 @@ class LanguageIdentifier(object):
         log.info(
             f"Predicting with the following off-the-shelve LID systems: {', '.join(lids)}."
         )
-
+        self.round_ndigits = round_ndigits
         self.results = []
 
     def run(self):
@@ -220,12 +228,16 @@ class LanguageIdentifier(object):
                     and isinstance(j["ft"], str)
                     and len(j["ft"].strip()) >= self.minimal_text_length
                 ):
-                    jinfo["alphabetical_ratio"] = round(alphabetical_ratio(j["ft"]), 2)
+                    jinfo["alphabetical_ratio"] = round(
+                        alphabetical_ratio(j["ft"]), self.round_ndigits
+                    )
 
                     # predict with langdetect
                     if "langdetect" in self.lids:
                         try:
-                            langdetect_result = avg_langdetect_lid(j["ft"], 3)
+                            langdetect_result = avg_langdetect_lid(
+                                j["ft"], 3, round_ndigits=self.round_ndigits
+                            )
                         except LangDetectException:
                             log.error(
                                 f"LANGDETECT-ERROR-WITH {jinfo} {j['ft']}  {sys.exc_info()[0]}"
@@ -234,11 +246,14 @@ class LanguageIdentifier(object):
                         jinfo["langdetect"] = langdetect_result
 
                     # predict with langid
-                    if "landid" in self.lids:
+                    if "langid" in self.lids:
                         try:
                             lang_orig, lang_prob_orig = langid_lid.classify(j["ft"])
                             jinfo["langid"] = [
-                                {"lang": lang_orig, "prob": round(lang_prob_orig, 2)}
+                                {
+                                    "lang": lang_orig,
+                                    "prob": round(lang_prob_orig, self.round_ndigits),
+                                }
                             ]
                         except:
                             log.error(f"LANGID-ERROR-WITH {sys.exc_info()[0]}")
@@ -248,7 +263,9 @@ class LanguageIdentifier(object):
                     if "impresso_ft" in self.lids and impresso_ft_model is not None:
                         try:
                             jinfo["impresso_ft"] = fasttext_lid(
-                                j["ft"], impresso_ft_model
+                                j["ft"],
+                                impresso_ft_model,
+                                round_ndigits=self.round_ndigits,
                             )
                         except:
                             jinfo["impresso_ft"] = None
@@ -259,7 +276,9 @@ class LanguageIdentifier(object):
                     # fasttext with public wikipedia model
                     if "wp_ft" in self.lids and wp_ft_model is not None:
                         try:
-                            jinfo["wp_ft"] = fasttext_lid(j["ft"], wp_ft_model)
+                            jinfo["wp_ft"] = fasttext_lid(
+                                j["ft"], wp_ft_model, round_ndigits=self.round_ndigits
+                            )
                         except:
                             jinfo["wp_ft"] = None
                             log.error(f"WP-FT-ERROR-WITH {sys.exc_info()[0]}")
@@ -334,7 +353,12 @@ if __name__ == "__main__":
         metavar="LID",
         help="names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here!",
     )
-
+    parser.add_argument(
+        "--round-ndigits",
+        default=9,
+        type=int,
+        help="round floats in the output to n digits (default %(default)s)",
+    )
     parser.add_argument(
         "--impresso-ft",
         default=None,
@@ -369,6 +393,7 @@ if __name__ == "__main__":
         "impresso_ft",
         "wp_ft",
         "minimal_text_length",
+        "round_ndigits",
         "lids",
     }
 
