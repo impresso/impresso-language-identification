@@ -73,7 +73,7 @@ class LanguageIdentifier:
     :param str outfile: Path to folder where processed JSON files should be saved.
     :param type collection_json_stats: JSON file with aggregated statistics per collection.
     :param type collection_stats: Content of the file provided with collection_json_stats.
-    :param Set[str] lids: Set of LID systems predict language/probability pairs.
+    :param Set[str] lids: Set of LID systems predict to language/probability pairs.
         Therefore, orig_lg is not seen as LID system as it "predicts" only a single language if any.
     :param float weight_lb_impresso_ft: voting weight for impresso_ft predicting Luxembourgish.
     :param float minimal_lid_probability: Minimal probability for a LID decision to be considered a vote.

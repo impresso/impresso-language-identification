@@ -6,7 +6,7 @@ Aggregate language-related statistics on content items to assess
 the overall confidence into different classifiers for language identification (LID).
 
 This script takes a JSON file as input that provides a multitude of LID predictions
-per content item and looks as follows:
+per content item. Example:
 
 {
    "tp":"page",
@@ -55,61 +55,43 @@ def update_relfreq(counter: Counter, n: Optional[int] = None, ndigits: int = 9) 
 class AggregatorLID:
     """Assess confidence of multiple language identifiers based on global statistics.
 
-    :param str infile: JSON file containing the language predictions.
-
+    :param str infile: JSON file containing the language predictions per content item.
     :param str collection: Short canonical name of newspaper.
-
     :param Set[str] lids: Set of LID systems predict language/probability pairs.
         Therefore, orig_lg is not seen as LID system as it "predicts" only a single language if any.
-
     :param Set[str] boosted_lids: Set of LIDs that are boosted by a boost factor.
-
     :param float boost_factor: Boost factor applied to boosted LIDS if the have
         support from at least another LID. The idea is that on their own some of
         the LIDs or the `orig_lg` can be pretty wrong. If they have at least a
         support from a another system the confidence into their decision grows considerably.
-
-    :param Optional[Set[str]] admissible_languages: Limit languages for the ensemble decisions.
+    :param Optional[Set[str]] admissible_languages: Limit languages in the ensemble decisions.
         If None, no restrictions are applied.
-
     :param float minimal_vote_score: Minimal vote score from ensemble to reach a decision.
-
     :param float minimal_lid_probability: Minimal probability for a LID decision to be considered a vote.
-
     :param int threshold_length: Threshold on article length in chars for computing `orig_lg` support.
-
     :param int round_ndigits: Number of decimal places in the output.
 
-    :attr type version: Version of the collection script.
-
-    :attr type attrs_for_json: Defines all attributes of this data object that
+    :attr str version: Version of the collection script.
+    :attr list attrs_for_json: Defines all attributes of this data object that
         enter the JSON output in their corresponding order.
-
-    :attr type total_orig_support_ratio: Percentage of all content items
+    :attr Optional[float] total_orig_support_ratio: Percentage of all content items
         with a non-null original language and a minimal length threshold
         where the original language matches the ensemble decision.
-
-    :attr type overall_orig_lg_support: Percentage of existing language
+    :attr Optional[float] overall_orig_lg_support: Percentage of existing language
         categorizations (i.e. `orig_lg`) that is backed by the ensemble decision.
         This number serves as an overall criterion on the confidence that we can establish for a collection.
-
-    :attr type n: Total number of content items that are not filtered out due to
+    :attr int n: Total number of content items that are not filtered out due to
         incompatible type (img) or lack of any textual content.
-
-    :attr type dominant_language: The most frequent language of a collection according to the ensemble decision.
+    :attr str dominant_language: The most frequent language of a collection according to the ensemble decision.
         The detailed percentage for this language can be found in the language
         class distribution in the ensemble frequency distribution.
         This value is extracted for convenience here.
-
-    :attr type lg_support: Counter about agreement/disagreement w.r.t.
+    :attr dict lg_support: Counter about agreement/disagreement w.r.t.
         the ensemble decision for each selected LID and `orig_lg`.
-
-    :attr type lid_distributions: Counter with a language frequency distribution
+    :attr dict lid_distributions: Counter with a language frequency distribution
         for each selected LID, `orig_lg` and the voting results `ensemble`.
-
-    :attr type contentitem_type_distribution: Distribution of content item types (article, ad, image etc.).
-
-    :attr type content_length_stats: Distribution of article lengths (raw character counts).
+    :attr Counter contentitem_type_distribution: Distribution of content item types (article, ad, image etc.).
+    :attr Counter content_length_stats: Distribution of article lengths (raw character counts).
 
     """
 
@@ -129,7 +111,7 @@ class AggregatorLID:
 
         self.version = __version__
 
-        self.attrs_for_json = [
+        self.attrs_for_json: list= [
             # configured information
             "collection",
             "lids",
@@ -441,11 +423,10 @@ if __name__ == "__main__":
     DESCRIPTION = "Aggregate language-related statistics on content items."
 
     parser = argparse.ArgumentParser(description=DESCRIPTION)
-    parser.add_argument("-l", "--logfile", dest="logfile", help="write log to FILE", metavar="FILE")
+    parser.add_argument("-l", "--logfile", help="write log to FILE", metavar="FILE")
     parser.add_argument(
         "-v",
         "--verbose",
-        dest="verbose",
         default=2,
         type=int,
         metavar="LEVEL",
@@ -453,45 +434,39 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--collection",
-        dest="collection",
         type=str,
         help="collection name for statistics output (default %(default)s)",
     )
     parser.add_argument(
-        "--threshold_length",
-        dest="threshold_length",
+        "--minimal-text-length",
         metavar="n",
         default=200,
         type=int,
         help="threshold on article length in chars for computing orig_lg support (default %(default)s)",
     )
     parser.add_argument(
-        "--boost_factor",
-        dest="boost_factor",
+        "--boost-factor",
         metavar="B",
         default=1.5,
         type=float,
         help="Boost factor for boosted lids (default %(default)s)",
     )
     parser.add_argument(
-        "--minimal_lid_probability",
-        dest="minimal_lid_probability",
+        "--minimal-lid-probability",
         metavar="P",
         default=0.25,
         type=float,
         help="Minimal probability for a LID decision to be considered a vote (default %(default)s)",
     )
     parser.add_argument(
-        "--minimal_vote_score",
-        dest="minimal_vote_score",
+        "--minimal-vote-score",
         metavar="S",
         default=1.5,
         type=float,
         help="Minimal vote score from ensemble to reach a decision (default %(default)s)",
     )
     parser.add_argument(
-        "--round_ndigits",
-        dest="round_ndigits",
+        "--round-ndigits",
         default=9,
         type=int,
         help="round floats in the output to n digits (default %(default)s)",
@@ -512,7 +487,7 @@ if __name__ == "__main__":
         help="Names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here!",
     )
     parser.add_argument(
-        "--boosted_lids",
+        "--boosted-lids",
         nargs="+",
         default=[],
         metavar="LID",
@@ -520,11 +495,12 @@ if __name__ == "__main__":
         "a factor if they have support from any other system or orig_lg.",
     )
     parser.add_argument(
-        "--admissible_languages",
+        "--admissible-languages",
         nargs="+",
         default=None,
         metavar="L",
-        help="Names of (default: %(default)s)",
+        help="Names of languages considered in the ensemble decisions. "
+        "If None, no restrictions are applied (default: %(default)s)",
     )
 
     arguments = parser.parse_args()

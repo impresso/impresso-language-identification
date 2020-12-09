@@ -1,6 +1,10 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 
+"""
+Compute language identification classes and their probabilities with different LID systems.
+"""
+
 __version__ = "2020.11.30"
 
 import logging
@@ -36,7 +40,7 @@ def alphabetical_ratio(text: str) -> Optional[float]:
     len_text = len(text)
     if len_text == 0:
         return None
-    filtered = re.sub(r'[\W_\d]+', '', text)
+    filtered = re.sub(r"[\W_\d]+", "", text)
 
     return len(filtered) / len_text
 
@@ -57,8 +61,8 @@ def average_distribution(listoflist: List[List]) -> List[Dict[str, float]]:
             counter[r.lang] += r.prob
     for lang in counter:
         counter[lang] = counter[lang] / total
-    #log.critical(f"{counter.most_common()}")
-    result = [{"lang": lang, "prob": round(prob, 2)} for lang,prob in counter.most_common()]
+
+    result = [{"lang": lang, "prob": round(prob, 2)} for lang, prob in counter.most_common()]
 
     log.debug(f"DEBUG-LANGDETECT-DIVERSITY Length: {len(listoflist)} Predictions: {listoflist}")
 
@@ -101,30 +105,57 @@ def fasttext_lid(text: str, ft_model) -> List[Dict[str, float]]:
     """
 
     # ignore digits
-    text = re.sub(r'\d+', '', text)
+    text = re.sub(r"\d+", "", text)
 
     labels, probs = ft_model.predict(text, k=3, threshold=0.005)
-    result = [{"lang": lang.replace('__label__', ''), "prob": float(min(1, round(probs[i], 2)))}
-              for (i, lang) in
-              enumerate(labels)]
+    result = [
+        {"lang": lang.replace("__label__", ""), "prob": float(min(1, round(probs[i], 2)))}
+        for (i, lang) in enumerate(labels)
+    ]
 
     return result
 
 
-class LanguageInfer(object):
+class LanguageInfer:
+    """Predict languages for content items.
 
-    def __init__(self, args: Dict) -> None:
-        self.args = args
-        self.detectors = ["langdetect", "langid"]  # default LID detectors
-        self.jsonlog = {}
-        self.results = []  # list of json
-        self.year_stats = Counter()
-        self.issue_stats = Counter()
+    :param str infile: Path to input file in impresso bz2 rebuilt format.
+    :param str outfile: JSON file with language predictions per content item.
+    :param str impresso_ft: Path to binary fasttext LID impresso model.
+    :param str wp_ft: Path to binary fasttext LID Wikipedia model.
+    :param int minimal_text_length: threshold for text length in characters to apply automatic language identification.
+    :param Set[str] lids: Set of LID systems predict to language/probability pairs.
+        Therefore, orig_lg is not seen as LID system as it "predicts" only a single language if any.    :attr type results: Description of parameter `results`.
+
+    :attr list results: Collection of content items with the language prediction of various systems.
+
+    """
+
+    def __init__(
+        self,
+        infile: str,
+        outfile: str,
+        impresso_ft: str,
+        wp_ft: str,
+        minimal_text_length: int,
+        lids: list,
+    ):
+
+        self.infile: str = infile
+        self.outfile: str = outfile
+        self.impresso_ft: str = impresso_ft
+        self.wp_ft: str = wp_ft
+        self.minimal_text_length: int = minimal_text_length
+
+        self.lids: list = lids
+        log.info(f"Predicting with the following off-the-shelve LID systems: {', '.join(lids)}.")
+
+        self.results = []
 
     def run(self):
         log.info(f"Language identification started.")
         self.language_identification()
-        self.output()
+        self.write_output()
         log.info(f"Language identification finished.")
 
     def language_identification(self) -> None:
@@ -143,10 +174,10 @@ class LanguageInfer(object):
         # load provided FastText models
         impresso_ft_model = wp_ft_model = None
 
-        if self.args.impresso_ft is not None:
-            impresso_ft_model = fasttext.load_model(self.args.impresso_ft)
-        if self.args.wp_ft is not None:
-            wp_ft_model = fasttext.load_model(self.args.wp_ft)
+        if self.impresso_ft is not None:
+            impresso_ft_model = fasttext.load_model(self.impresso_ft)
+        if self.wp_ft is not None:
+            wp_ft_model = fasttext.load_model(self.wp_ft)
 
         # iterate over content items and apply all LID models
         for j in self.next_contentitem():
@@ -162,32 +193,44 @@ class LanguageInfer(object):
                         "len": len(j["ft"]) if "ft" in j and isinstance(j["ft"], str) else 0,
                         "orig_lg": j["lg"] if "lg" in j else None,
                         "version": __version__,
-                        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(sep="T", timespec="seconds")
+                        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(
+                            sep="T", timespec="seconds"
+                        ),
                     }
                 )
 
                 # perform lid if text of content item is available and has a minimal length
-                if "ft" in j and isinstance(j["ft"], str) and len(j["ft"].strip()) >= self.args.minimal_text_length:
+                if (
+                    "ft" in j
+                    and isinstance(j["ft"], str)
+                    and len(j["ft"].strip()) >= self.minimal_text_length
+                ):
                     jinfo["alphabetical_ratio"] = round(alphabetical_ratio(j["ft"]), 2)
 
                     # predict with langdetect
-                    try:
-                        langdetect_result = avg_langdetect_lid(j["ft"], 3)
-                    except LangDetectException:
-                        log.error(f"LANGDETECT-ERROR-WITH {jinfo} {j['ft']}  {sys.exc_info()[0]}")
-                        langdetect_result = None
-                    jinfo["langdetect"] = langdetect_result
+                    if "langdetect" in self.lids:
+                        try:
+                            langdetect_result = avg_langdetect_lid(j["ft"], 3)
+                        except LangDetectException:
+                            log.error(
+                                f"LANGDETECT-ERROR-WITH {jinfo} {j['ft']}  {sys.exc_info()[0]}"
+                            )
+                            langdetect_result = None
+                        jinfo["langdetect"] = langdetect_result
 
                     # predict with langid
-                    try:
-                        lang_orig, lang_prob_orig = langid_lid.classify(j["ft"])
-                        jinfo["langid"] = [{"lang": lang_orig, "prob": round(lang_prob_orig, 2)}]
-                    except:
-                        log.error(f"LANGID-ERROR-WITH {sys.exc_info()[0]}")
-                        jinfo["langid"] = None
+                    if "landid" in self.lids:
+                        try:
+                            lang_orig, lang_prob_orig = langid_lid.classify(j["ft"])
+                            jinfo["langid"] = [
+                                {"lang": lang_orig, "prob": round(lang_prob_orig, 2)}
+                            ]
+                        except:
+                            log.error(f"LANGID-ERROR-WITH {sys.exc_info()[0]}")
+                            jinfo["langid"] = None
 
                     # fasttext with our own de/fr/lb model
-                    if impresso_ft_model is not None:
+                    if "impresso_ft" in self.lids and impresso_ft_model is not None:
                         try:
                             jinfo["impresso_ft"] = fasttext_lid(j["ft"], impresso_ft_model)
                         except:
@@ -197,7 +240,7 @@ class LanguageInfer(object):
                         jinfo["impresso_ft"] = None
 
                     # fasttext with public wikipedia model
-                    if wp_ft_model is not None:
+                    if "wp_ft" in self.lids and wp_ft_model is not None:
                         try:
                             jinfo["wp_ft"] = fasttext_lid(j["ft"], wp_ft_model)
                         except:
@@ -208,58 +251,90 @@ class LanguageInfer(object):
 
                 self.results.append(jinfo)
             except:
-                log.error(f'PROBLEM WITH {sys.exc_info()} {jinfo} {j}')
+                log.error(f"PROBLEM WITH {sys.exc_info()} {jinfo} {j}")
                 exit(1)
 
-    def output(self):
+    def write_output(self):
         """
-        Output json
+        Write results to json.
         """
-        with open(self.args.output_file, mode="w", encoding="utf-8") as f_out:
+        with open(self.outfile, mode="w", encoding="utf-8") as f_out:
             writer = jsonlines.Writer(f_out)
             writer.write_all(self.results)
 
     def next_contentitem(self) -> Iterable[dict]:
-        """"
-        Yield each contentitem
+        """ "
+        Yield each contentitem.
         """
 
-        with open(self.args.input_file, encoding="utf-8") as reader:
+        with open(self.infile, encoding="utf-8") as reader:
             json_reader = jsonlines.Reader(reader)
             for jdata in json_reader:
                 yield jdata
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
 
-    description = "Compute language identification classes and their probability with different lid tools. Per " \
-                  "default we use langdetect, langid. Per option two additional fasttext models  can be loaded "
-    epilog = "All tools use two-letter ISO 639-1 codes, except wp_ft which recognizes additional languages identifiable only by 3 letter codes."
-    parser = argparse.ArgumentParser(description=description, epilog=epilog)
-    parser.add_argument('-l', '--logfile', dest='logfile',
-                        help='write log to FILE', metavar='FILE')
-    parser.add_argument('-v', '--verbose', dest='verbose', default=2, type=int, metavar="LEVEL",
-                        help='set verbosity level: 0=CRITICAL, 1=ERROR, 2=WARNING, 3=INFO 4=DEBUG (default %(default)s)')
-    parser.add_argument('-i', '--input-file', default="/dev/stdin",
-                        help="path to input file in impresso bz2 rebuilt format")
-    parser.add_argument('-o', '--output-file', default="/dev/stdout",
-                        help="path to output file for impresso lid json format")
-    parser.add_argument('-m', '--minimal-text-length', default=20, type=int,
-                        help="minimal text length of content items to apply automatic landuage identification (default %(default)s)")
-    parser.add_argument('-j', '--json-log-file', default=None,
-                        help="Most important statistics and output collected in a structured JSON file")
-    parser.add_argument('--impresso_ft', default=None, help="Binary fasttext LID impresso model labeled impresso_ft "
-                                                            "in the output", metavar="FILE")
-    parser.add_argument('--wp_ft', default=None, help="Binary fasttext wikipedia LID model labeled wp_ft in the "
-                                                      "output ", metavar="FT2")
+    DESCRIPTION = "Compute language identification classes and their probabilities with different LID systems."
+    EPILOG = "All tools use two-letter ISO 639-1 codes, except wp_ft which recognizes additional languages identifiable only by 3 letter codes."
+    parser = argparse.ArgumentParser(description=DESCRIPTION, epilog=EPILOG)
+    parser.add_argument("-l", "--logfile", dest="logfile", help="write log to FILE", metavar="FILE")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        dest="verbose",
+        default=2,
+        type=int,
+        metavar="LEVEL",
+        help="set verbosity level: 0=CRITICAL, 1=ERROR, 2=WARNING, 3=INFO 4=DEBUG (default %(default)s)",
+    )
+    parser.add_argument(
+        "-i",
+        "--infile",
+        default="/dev/stdin",
+        help="path to input file in impresso bz2 rebuilt format",
+    )
+    parser.add_argument(
+        "-o",
+        "--outfile",
+        default="/dev/stdout",
+        help="path to output file for impresso lid json format",
+    )
+    parser.add_argument(
+        "-m",
+        "--minimal-text-length",
+        default=20,
+        type=int,
+        help="minimal text length of content items to apply automatic landuage identification (default %(default)s)",
+    )
+    parser.add_argument(
+        "--lids",
+        nargs="+",
+        default=[],
+        metavar="LID",
+        help="names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here!",
+    )
 
-    args = parser.parse_args()
+    parser.add_argument(
+        "--impresso-ft",
+        default=None,
+        help="binary fasttext LID impresso model labeled impresso_ft in the output",
+        metavar="FILE",
+    )
+    parser.add_argument(
+        "--wp-ft",
+        default=None,
+        help="binary fasttext wikipedia LID model labeled wp_ft in the output ",
+        metavar="FT2",
+    )
 
-    log_levels = [logging.CRITICAL, logging.ERROR, logging.WARNING,
-                  logging.INFO, logging.DEBUG]
+    arguments = parser.parse_args()
 
-    logging.basicConfig(level=log_levels[args.verbose],
-                        format='%(asctime)-15s %(levelname)s: %(message)s')
+    log_levels = [logging.CRITICAL, logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG]
 
-    LanguageInfer(args).run()
+    logging.basicConfig(
+        level=log_levels[arguments.verbose], format="%(asctime)-15s %(levelname)s: %(message)s"
+    )
+
+    LanguageInfer(**arguments).run()

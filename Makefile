@@ -1,10 +1,10 @@
-########################################################################################## 
-# Makefile for impresso language identification 
+##########################################################################################
+# Makefile for impresso language identification
 #
 # Note: Processing is done on locally stored data, not directly on s3 storage.
 
 
-########################################################################################## 
+##########################################################################################
 # Make setup
 
 SHELL := /bin/bash
@@ -49,7 +49,7 @@ else
 DEBUG_OPTION =
 endif
 
-########################################################################################## 
+##########################################################################################
 # Make variables for impresso data infrastructure
 # Variables in uppercase and underscores can be overwritten by the user at build time
 
@@ -108,11 +108,11 @@ $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
 	    else { touch $@.running ; echo "$$(date -Iseconds) Building $@ now..." ; }  ; \
 	   fi \
 	&& python lib/language_identification.py \
-	    --impresso_ft $(IMPPRESSO_FASTTEXT_MODEL) \
-	    --wp_ft $(WIKIPEDIA_FASTTEXT_MODEL) \
+	    --impresso-ft $(IMPPRESSO_FASTTEXT_MODEL) \
+	    --wp-ft $(WIKIPEDIA_FASTTEXT_MODEL) \
 	    --minimal-text-length $(MINIMAL_TEXT_LENGTH) \
-	    --input-file $< \
-	    --output-file $@.working.jsonl.bz2 \
+	    --infile $< \
+	    --outfile $@.working.jsonl.bz2 \
 	    $(DEBUG_OPTION) \
 	    $(TARGET_LOG_MACRO) 1>&2 \
 	&& mv $@.working.jsonl.bz2 $@ \
@@ -139,11 +139,11 @@ $(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%/
 	python lib/collection_statistics.py \
 	   --collection $* \
 	   --lids langid langdetect impresso_ft wp_ft \
-	   --boosted_lids orig_lg impresso_ft \
-	   --threshold_for_support 200 \
-	   --boost_factor 1.5 \
-	   --minimal_vote_score 1.5 \
-	   --minimal_lid_probability 0.25 \
+	   --boosted-lids orig_lg impresso_ft \
+	   --minimal-text-length 200 \
+	   --boost-factor 1.5 \
+	   --minimal-vote-score 1.5 \
+	   --minimal-lid-probability 0.25 \
 	   $(DEBUG_OPTION) \
 	   $(<)$(*)*.jsonl.bz2 \
 	   > $@ \
@@ -175,18 +175,13 @@ $(LID_BUILD_DIR)/stage2/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 	mkdir -p $(@D) \
 	&& python lib/impresso_lid.py \
 	 --lids langid langdetect impresso_ft wp_ft \
-	 --boost-factor 1.5 \
-	 --double-boosted-lids impresso_ft \
-	 --boosted-lids impresso_ft \
+	 --weight-lb-impresso-ft 3
 	 --minimal-text-length $(MINIMAL_TEXT_LENGTH) \
 	 --collection-json-stats $(patsubst %/,%.stats.json,$(subst /stage2,/stage1,$(dir $@))) \
-	 --input-file $< \
-	 --output-file $@.working.jsonl.bz2 \
+	 --infile $< \
+	 --outfile $@.working.jsonl.bz2 \
      $(DEBUG_OPTION) \
 	 $(TARGET_LOG_MACRO) \
 	&& mv $@.working.jsonl.bz2 $@ \
 	&& echo "$$(date -Iseconds) build of $@ finished successfully." \
 	|| { echo "Warning: Something went wrong while building $@. Check $@.log. Cleaning up $@ now." ; rm -vf $@ ; }
-
-
-
