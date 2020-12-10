@@ -286,7 +286,7 @@ class ImpressoLanguageIdentifier(object):
                     continue
 
             # rule 2c: set dominant language of collection for very short articles
-            if jinfo["len"] < 50:
+            if jinfo["len"] < self.minimal_text_length:
                 jinfo["lg"] = dominant_lg
                 jinfo["lg_decision"] = "dominant-by-len"
                 self.decision_distribution["dominant-by-len"] += 1
