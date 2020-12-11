@@ -113,7 +113,7 @@ To perform this stage, run the following command:
 make impresso-lid-stage2-target
 ```
 
-The process of stage 2 is fast and cannot be run on different machines.
+The process of stage 1b and 2 is fast and cannot be run on different machines.
 
 ## Parallelization
 To run the full LID process on a single machine with N cores, run:

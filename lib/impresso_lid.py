@@ -293,17 +293,18 @@ class ImpressoLanguageIdentifier(object):
                 self.results.append(jinfo)
                 continue
 
-            # rule 3: get decision by ensemble voting for less obvious cases
             votes = self.get_votes(old_jinfo)
-            jinfo["votes"] = votes.most_common()
-            if votes.most_common(n=1)[0][1] < self.minimal_voting_score:
+            log.debug(f"VOTES={votes} {jinfo}")
+            if log.level == 10:
+                jinfo["votes"] = votes.most_common()
+            if len(votes) < 1 or (len(votes) > 1 and votes.most_common(n=1)[0][1] < self.minimal_voting_score):
                 jinfo["lg"] = dominant_lg
                 jinfo["lg_decision"] = "dominant-by-lowvote"
                 self.decision_distribution["dominant-by-lowvote"] += 1
                 self.results.append(jinfo)
                 continue
 
-            log.critical(f"VOTES={votes} {jinfo}")
+            # rule 3: get decision by ensemble voting for less obvious cases
             jinfo["lg"] = votes.most_common(n=1)[0][0]
             jinfo["lg_decision"] = "voting"
             self.decision_distribution["voting"] += 1
