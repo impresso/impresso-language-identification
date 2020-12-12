@@ -58,7 +58,7 @@ endif
 IMPRESSO_REBUILT_DATA_DIR ?= rebuilt-data
 
 # Language identification version
-LID_VERSION ?= v1.1
+LID_VERSION ?= v1.2
 
 # build dir
 BUILD_DIR ?= build
@@ -73,11 +73,9 @@ LID_SYSTEMS ?= langid langdetect impresso_ft wp_ft
 IMPPRESSO_FASTTEXT_MODEL ?= models/fasttext/impresso-lid.bin
 WIKIPEDIA_FASTTEXT_MODEL ?= models/fasttext/lid.176.bin
 
-# minimal text length threshold for automatic LID in stage 1
-MINIMAL_TEXT_LENGTH ?= 20
-
-#
-OUTPUT_DIR ?= $(LID_BUILD_DIR)/language_identification/$(LID_VERSION)
+# minimal text length threshold for automatic LID in stage 1 and 2
+STAGE1_MINIMAL_TEXT_LENGTH ?= 20
+STAGE2_MINIMAL_TEXT_LENGTH ?= 50
 
 # all known collection acronyms from the file system
 COLLECTION_ACRONYMS ?= $(notdir $(wildcard $(IMPRESSO_REBUILT_DATA_DIR)/*))
@@ -114,13 +112,13 @@ $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
 	    --lids $(LID_SYSTEMS) \
 	    --impresso-ft $(IMPPRESSO_FASTTEXT_MODEL) \
 	    --wp-ft $(WIKIPEDIA_FASTTEXT_MODEL) \
-	    --minimal-text-length $(MINIMAL_TEXT_LENGTH) \
+	    --minimal-text-length $(STAGE1_MINIMAL_TEXT_LENGTH) \
 	    --round-ndigits 3 \
 	    --infile $< \
-	    --outfile $@.working.jsonl.bz2 \
+	    --outfile $@.$${HOSTNAME}.working.jsonl.bz2 \
 	    $(DEBUG_OPTION) \
 	    $(TARGET_LOG_MACRO) 1>&2 \
-	&& mv $@.working.jsonl.bz2 $@ \
+	&& mv $@.$${HOSTNAME}.working.jsonl.bz2 $@ \
 	&& rm -fv $@.running \
 	&& echo "$$(date -Iseconds) build of $@ finished successfully." \
 	|| rm -fv $@.running
@@ -182,7 +180,7 @@ $(LID_BUILD_DIR)/stage2/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 	 --lids $(LID_SYSTEMS) \
 	 --weight-lb-impresso-ft 3 \
 	 --minimal-voting-score 0.5 \
-	 --minimal-text-length $(MINIMAL_TEXT_LENGTH) \
+	 --minimal-text-length $(STAGE2_MINIMAL_TEXT_LENGTH) \
 	 --collection-stats-filename $(patsubst %/,%.stats.json,$(subst /stage2,/stage1,$(dir $@))) \
 	 --infile $< \
 	 --outfile $@.working.jsonl.bz2 \
