@@ -15,7 +15,8 @@ from collections import Counter
 from typing import Dict, List, Optional, Iterable, Set, Union
 
 import fasttext
-import jsonlines
+
+import json
 import langdetect
 from langdetect.lang_detect_exception import LangDetectException
 from langid import langid
@@ -172,7 +173,7 @@ class LanguageIdentifier(object):
         self.results = []
 
     def run(self):
-        log.info(f"Language identification started.")
+        log.info(f"Language identification started with config: {json.dumps(vars(self),default=lambda x: list(x) if isinstance(x,set) else x)}")
         self.language_identification()
         self.write_output()
         log.info(f"Language identification finished.")
@@ -296,8 +297,10 @@ class LanguageIdentifier(object):
         """
 
         with open(self.outfile, mode="w", encoding="utf-8") as f_out:
-            writer = jsonlines.Writer(f_out)
-            writer.write_all(self.results)
+            for r in self.results:
+                print(
+                    json.dumps(r, ensure_ascii=False, separators=(",", ":")), file=f_out
+                )
 
     def next_contentitem(self) -> Iterable[dict]:
         """
@@ -305,9 +308,9 @@ class LanguageIdentifier(object):
         """
 
         with open(self.infile, encoding="utf-8") as reader:
-            json_reader = jsonlines.Reader(reader)
-            for jdata in json_reader:
-                yield jdata
+            for l in reader:
+                if l.strip():
+                    yield json.loads(l)
 
 
 if __name__ == "__main__":
@@ -323,7 +326,7 @@ if __name__ == "__main__":
         "-v",
         "--verbose",
         dest="verbose",
-        default=2,
+        default=3,
         type=int,
         metavar="LEVEL",
         help="set verbosity level: 0=CRITICAL, 1=ERROR, 2=WARNING, 3=INFO 4=DEBUG (default %(default)s)",
