@@ -74,8 +74,17 @@ IMPPRESSO_FASTTEXT_MODEL ?= models/fasttext/impresso-lid.bin
 WIKIPEDIA_FASTTEXT_MODEL ?= models/fasttext/lid.176.bin
 
 # minimal text length threshold for automatic LID in stage 1 and 2
-STAGE1_MINIMAL_TEXT_LENGTH ?= 20
+STAGE1A_MINIMAL_TEXT_LENGTH ?= 20
+STAGE1B_MINIMAL_TEXT_LENGTH ?= 200
 STAGE2_MINIMAL_TEXT_LENGTH ?= 50
+
+# hyperparameters for scoring the languages
+BOOST_FACTOR ?= 1.5
+WEIGHT_LB_IMPRESSO ?= 3
+MINIMAL_VOTING_SCORE ?= 0.5
+MINIMAL_LID_PROBABILITY ?= 0.25
+MINIMAL_VOTE_SCORE ?= 1.5
+
 
 # all known collection acronyms from the file system
 COLLECTION_ACRONYMS ?= $(notdir $(wildcard $(IMPRESSO_REBUILT_DATA_DIR)/*))
@@ -112,7 +121,7 @@ $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
 	    --lids $(LID_SYSTEMS) \
 	    --impresso-ft $(IMPPRESSO_FASTTEXT_MODEL) \
 	    --wp-ft $(WIKIPEDIA_FASTTEXT_MODEL) \
-	    --minimal-text-length $(STAGE1_MINIMAL_TEXT_LENGTH) \
+	    --minimal-text-length $(STAGE1A_MINIMAL_TEXT_LENGTH) \
 	    --round-ndigits 3 \
 	    --infile $< \
 	    --outfile $@.$${HOSTNAME}.working.jsonl.bz2 \
@@ -143,10 +152,10 @@ $(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%/
 	   --collection $* \
 	   --lids $(LID_SYSTEMS) \
 	   --boosted-lids orig_lg impresso_ft \
-	   --minimal-text-length 200 \
-	   --boost-factor 1.5 \
-	   --minimal-vote-score 1.5 \
-	   --minimal-lid-probability 0.25 \
+	   --minimal-text-length $(STAGE1B_MINIMAL_TEXT_LENGTH) \
+	   --boost-factor $(BOOST_FACTOR) \
+	   --minimal-vote-score $(MINIMAL_VOTE_SCORE) \
+	   --minimal-lid-probability $(MINIMAL_LID_PROBABILITY) \
 	   $(DEBUG_OPTION) \
 	   $(<)$(*)*.jsonl.bz2 \
 	   > $@ \
@@ -178,8 +187,8 @@ $(LID_BUILD_DIR)/stage2/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 	mkdir -p $(@D) \
 	&& python lib/impresso_lid.py \
 	 --lids $(LID_SYSTEMS) \
-	 --weight-lb-impresso-ft 3 \
-	 --minimal-voting-score 0.5 \
+	 --weight-lb-impresso-ft $(WEIGHT_LB_IMPRESSO) \
+	 --minimal-voting-score $(MINIMAL_VOTING_SCORE) \
 	 --minimal-text-length $(STAGE2_MINIMAL_TEXT_LENGTH) \
 	 --collection-stats-filename $(patsubst %/,%.stats.json,$(subst /stage2,/stage1,$(dir $@))) \
 	 --infile $< \

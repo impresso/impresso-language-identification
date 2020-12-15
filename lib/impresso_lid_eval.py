@@ -7,11 +7,11 @@ __version__ = "2020.12.14"
 __appname__ = "[application name here]"
 __author__ = "simon.clematide@uzh.ch"
 
+import json
 import logging
 import os
 import re
 import sys
-import json
 from collections import defaultdict, Counter
 from typing import DefaultDict, Dict, Tuple
 
@@ -67,7 +67,7 @@ class ImpressoLIDEvaluation(object):
                     self.stats["_ALL_"][lg == gold_lg] += 1
                     self.stats[gold_lg][lg == gold_lg] += 1
                     if lg != gold_lg:
-                        self.stats["__".join(gold_lg, lg)][False] += 1
+                        self.stats["__".join((gold_lg, lg))][False] += 1
         log.debug(f"STATS {self.stats}")
     #            print(self.ids_per_coll_year[(collection, year)])
 
