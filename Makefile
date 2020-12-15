@@ -203,6 +203,7 @@ $(LID_BUILD_DIR)/stage2.eval.all.json: impresso-lid-stage2-target
 	< test/ground-truth/all.jsonl \
 	 --file-extension jsonl.bz2 \
 	 --data-dir $(LID_BUILD_DIR)/stage2 \
+	 --diagnostics-json $(@:json=)diagnostics.jsonl \
 	 > $@ $(TARGET_LOG_MACRO) \
 	 $(DEBUG_OPTION)
 

@@ -33,7 +33,7 @@ class ImpressoLIDEvaluation(object):
         """Mapping of content item id to JSON content of sampling file"""
 
         self.stats: DefaultDict[Counter] = defaultdict(Counter)
-        """Evaluation statistics: _ALL_ for statistics over all languages, and ll iso-latin codes for all other languages"""
+        """Evaluation statistics: _ALL_ for statistics over all languages, and ll iso-latin codes for all other languages, ll__ll for confusion"""
 
     def search_json_lines(self):
         """Update information for each sampled content item in self.id2data"""
@@ -59,13 +59,16 @@ class ImpressoLIDEvaluation(object):
                             break
 
     def eval_json(self):
+        """"""
 
         for cid, ci in self.id2data.items():
             if (gold_lg := ci.get("gold_lg")) is not None:
                 if (lg := ci.get("lg")) is not None:
                     self.stats["_ALL_"][lg == gold_lg] += 1
                     self.stats[gold_lg][lg == gold_lg] += 1
-
+                    if lg != gold_lg:
+                        self.stats["__".join(gold_lg, lg)][False] += 1
+        log.debug(f"STATS {self.stats}")
     #            print(self.ids_per_coll_year[(collection, year)])
 
     def read_sampling_data(self):
@@ -89,13 +92,18 @@ class ImpressoLIDEvaluation(object):
 
     def print_statistics(self):
         if self.config["output_format"] == "json":
-            result = {"acc": {}, "corr": {}, "wrong": {}}
-            for k,stat in self.stats.items():
-                k_total = sum(stat.values())
+            result = {"acc": {}, "corr": {}, "wrong": {}, "confusion": {}}
+            for k, stat in self.stats.items():
+                k_total = sum(c for v,c in stat.items() if isinstance(v,bool))
                 result["corr"][k] = stat[True]
                 result["wrong"][k] = stat[False]
                 result["acc"][k] = stat[True] / k_total
+                result["confusion"][k] = stat[k]
             print(json.dumps(result))
+        if self.config["diagnostics_json"]:
+            with open(self.config["diagnostics_json"], "w",encoding="utf-8") as f:
+                for cid in self.id2data:
+                    print(json.dumps(self.id2data[cid]), file=f)
 
     def run(self):
         log.debug(self.config)
@@ -132,6 +140,11 @@ if __name__ == "__main__":
         "--file-extension",
         default="jsonl.bz2",
         help="suffix for ids_per_coll_year files (without initial period) (default %(default)s)",
+    )
+    parser.add_argument(
+        "--diagnostics-json",
+        type=str,
+        help="diagnostics information",
     )
     parser.add_argument(
         "--data-dir",
