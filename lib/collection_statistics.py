@@ -207,7 +207,6 @@ class AggregatorLID:
         json_data = self.jsonify()
         print(json.dumps(json_data))
 
-
     def get_next_contentitem(self) -> Iterable[dict]:
         """Yield each content items.
 
@@ -403,6 +402,20 @@ class AggregatorLID:
         - self.lg_support
         """
 
+        # Do this before the relative frequencies has been computed
+        try:
+            orig_lg_n = sum(
+                count
+                for (lang, count) in self.lid_distributions["orig_lg"].items()
+                if lang is not None
+            )
+            self.overall_orig_lg_support = round(
+                sum(self.lg_support["orig_lg"].values()) / orig_lg_n,
+                self.round_ndigits,
+            )
+        except ZeroDivisionError:
+            self.overall_orig_lg_support = None
+
         for lid in self.lids.union(["orig_lg"]):
             # if a collection has no orig_lg or if none of the predicted outputs of a system got support
             if not self.lg_support.get(lid):
@@ -414,19 +427,6 @@ class AggregatorLID:
                     self.lg_support[lid][lang] / self.lid_distributions[lid][lang],
                     self.round_ndigits,
                 )
-
-        try:
-            orig_lg_n = sum(
-                count
-                for (lang, count) in self.lid_distributions["orig_lg"].items()
-                if lang is not None
-            )
-            self.overall_orig_lg_support = round(
-                sum(self.lid_distributions["orig_lg"].values()) / orig_lg_n,
-                self.round_ndigits,
-            )
-        except ZeroDivisionError:
-            self.overall_orig_lg_support = None
 
         for lid in self.lid_distributions:
             update_relfreq(

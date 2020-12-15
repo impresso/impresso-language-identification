@@ -249,9 +249,9 @@ class ImpressoLanguageIdentifier(object):
             else:
                 # set confidence value of original language information as probability
                 # the original probability was always 1 before
-                orig_lg_support = self.collection_stats["lg_support"]["orig_lg"][
-                    old_jinfo["orig_lg"]
-                ]
+                orig_lg_support = self.collection_stats["lg_support"]["orig_lg"].get(
+                    old_jinfo["orig_lg"], 0.1
+                )
                 # use the original language information only
                 old_jinfo["orig_lg"] = [
                     {"lang": old_jinfo["orig_lg"], "prob": orig_lg_support}
@@ -297,7 +297,10 @@ class ImpressoLanguageIdentifier(object):
             log.debug(f"VOTES={votes} {jinfo}")
             if log.level == 10:
                 jinfo["votes"] = votes.most_common()
-            if len(votes) < 1 or (len(votes) > 1 and votes.most_common(n=1)[0][1] < self.minimal_voting_score):
+            if len(votes) < 1 or (
+                len(votes) > 1
+                and votes.most_common(n=1)[0][1] < self.minimal_voting_score
+            ):
                 jinfo["lg"] = dominant_lg
                 jinfo["lg_decision"] = "dominant-by-lowvote"
                 self.decision_distribution["dominant-by-lowvote"] += 1
