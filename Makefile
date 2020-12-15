@@ -189,3 +189,20 @@ $(LID_BUILD_DIR)/stage2/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 	&& mv $@.working.jsonl.bz2 $@ \
 	&& echo "$$(date -Iseconds) build of $@ finished successfully." \
 	|| { echo "Warning: Something went wrong while building $@. Check $@.log. Cleaning up $@ now." ; rm -vf $@ ; }
+
+
+
+
+########################################################################################################################
+# Evaluate against goldstandard
+
+impresso-lid-eval: $(LID_BUILD_DIR)/stage2.eval.all.json
+
+$(LID_BUILD_DIR)/stage2.eval.all.json: impresso-lid-stage2-target
+	python lib/impresso_lid_eval.py \
+	< test/ground-truth/all.jsonl \
+	 --file-extension jsonl.bz2 \
+	 --data-dir $(LID_BUILD_DIR)/stage2 \
+	 > $@ $(TARGET_LOG_MACRO) \
+	 $(DEBUG_OPTION)
+
