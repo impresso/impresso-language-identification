@@ -207,9 +207,9 @@ $(LID_BUILD_DIR)/stage2/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 ########################################################################################################################
 # Evaluate against goldstandard
 
-impresso-lid-eval: $(LID_BUILD_DIR)/stage2.eval.all.json
+impresso-lid-eval: $(LID_BUILD_DIR)/stage2.eval.all.$(EVALUATION_OUTPUT_FORMAT)
 
-$(LID_BUILD_DIR)/stage2.eval.all.json: impresso-lid-stage2-target
+$(LID_BUILD_DIR)/stage2.eval.all.$(EVALUATION_OUTPUT_FORMAT): impresso-lid-stage2-target
 	python lib/impresso_lid_eval.py \
 	< test/ground-truth/all.jsonl \
 	 --file-extension jsonl.bz2 \
