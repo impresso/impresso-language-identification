@@ -104,7 +104,8 @@ class ImpressoLIDEvaluation(object):
         if self.config["output_format"] == "tsv":
             for cid in sorted(self.id2data):
                 print("\t".join(
-                    [cid, (gold_lg := self.id2data[cid]['gold_lg']), (lg := self.id2data[cid]['lg']), gold_lg == lg]))
+                    [cid, (gold_lg := self.id2data[cid]['gold_lg']), (lg := self.id2data[cid]['lg']),
+                     str(gold_lg == lg)]))
         if self.config["diagnostics_json"]:
             with open(self.config["diagnostics_json"], "w", encoding="utf-8") as f:
                 for cid in self.id2data:
