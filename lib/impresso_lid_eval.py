@@ -66,8 +66,8 @@ class ImpressoLIDEvaluation(object):
                 if (lg := ci.get("lg")) is not None:
                     self.stats["_ALL_"][lg == gold_lg] += 1
                     self.stats[gold_lg][lg == gold_lg] += 1
-                    if lg != gold_lg:
-                        self.stats["__".join((gold_lg, lg))][False] += 1
+                    # if lg != gold_lg:
+                    # self.stats["__".join((gold_lg, lg))][False] += 1
         log.debug(f"STATS {self.stats}")
     #            print(self.ids_per_coll_year[(collection, year)])
 
@@ -94,14 +94,19 @@ class ImpressoLIDEvaluation(object):
         if self.config["output_format"] == "json":
             result = {"acc": {}, "corr": {}, "wrong": {}, "confusion": {}}
             for k, stat in self.stats.items():
-                k_total = sum(c for v,c in stat.items() if isinstance(v,bool))
+                k_total = sum(c for v, c in stat.items() if isinstance(v, bool))
+                log.debug(f"k_total {k_total} stat {stat}")
                 result["corr"][k] = stat[True]
                 result["wrong"][k] = stat[False]
                 result["acc"][k] = stat[True] / k_total
-                result["confusion"][k] = stat[k]
+                # result["confusion"][k] = stat[k]
             print(json.dumps(result))
+        if self.config["output_format"] == "tsv":
+            for cid in sorted(self.id2data):
+                print("\t".join(
+                    [cid, (gold_lg := self.id2data[cid]['gold_lg']), (lg := self.id2data[cid]['lg']), gold_lg == lg]))
         if self.config["diagnostics_json"]:
-            with open(self.config["diagnostics_json"], "w",encoding="utf-8") as f:
+            with open(self.config["diagnostics_json"], "w", encoding="utf-8") as f:
                 for cid in self.id2data:
                     print(json.dumps(self.id2data[cid]), file=f)
 

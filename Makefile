@@ -85,6 +85,8 @@ MINIMAL_VOTING_SCORE ?= 0.5
 MINIMAL_LID_PROBABILITY ?= 0.25
 MINIMAL_VOTE_SCORE ?= 1.5
 
+# evaluation mode
+EVALUATION_OUTPUT_FORMAT ?= json
 
 # all known collection acronyms from the file system
 COLLECTION_ACRONYMS ?= $(notdir $(wildcard $(IMPRESSO_REBUILT_DATA_DIR)/*))
@@ -213,6 +215,8 @@ $(LID_BUILD_DIR)/stage2.eval.all.json: impresso-lid-stage2-target
 	 --file-extension jsonl.bz2 \
 	 --data-dir $(LID_BUILD_DIR)/stage2 \
 	 --diagnostics-json $(@:json=)diagnostics.jsonl \
-	 > $@ $(TARGET_LOG_MACRO) \
-	 $(DEBUG_OPTION)
+	 --output-format $(EVALUATION_OUTPUT_FORMAT) \
+	 $(DEBUG_OPTION) \
+	 $(TARGET_LOG_MACRO) \
+	 | sponge $@
 
