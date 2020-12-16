@@ -69,6 +69,7 @@ class ImpressoLIDEvaluation(object):
                     # if lg != gold_lg:
                     # self.stats["__".join((gold_lg, lg))][False] += 1
         log.debug(f"STATS {self.stats}")
+
     #            print(self.ids_per_coll_year[(collection, year)])
 
     def read_sampling_data(self):
@@ -103,9 +104,18 @@ class ImpressoLIDEvaluation(object):
             print(json.dumps(result))
         if self.config["output_format"] == "tsv":
             for cid in sorted(self.id2data):
-                print("\t".join(
-                    [cid, (gold_lg := self.id2data[cid]['gold_lg']), (lg := self.id2data[cid]['lg']),
-                     str(gold_lg == lg)]))
+                if self.id2data[cid].get("lg") is None:
+                    continue
+                print(
+                    "\t".join(
+                        [
+                            cid,
+                            (gold_lg := self.id2data[cid]["gold_lg"]),
+                            (lg := self.id2data[cid]["lg"]),
+                            str(gold_lg == lg),
+                        ]
+                    )
+                )
         if self.config["diagnostics_json"]:
             with open(self.config["diagnostics_json"], "w", encoding="utf-8") as f:
                 for cid in self.id2data:
