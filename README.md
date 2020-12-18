@@ -141,7 +141,7 @@ we finally decide the language of an article according to the following rules:
  - If all LID systems except `impresso_ft` agree on a language other than `de`
    or `fr`, accept this other language. This rule typically applies for `it`,
    `la`, or other rare languages.  `lb` is exempt because not all LID systems
-   can recognize `lb`. Decision code: `other`.
+   can recognize `lb`. Decision code: `all-but-impresso_ft`.
 
  - If the text is shorter than 50 characters, we choose the dominant language of
    the newspaper. Decision code: `dominant-by-len`.

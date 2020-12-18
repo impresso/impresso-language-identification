@@ -82,11 +82,17 @@ STAGE2_MINIMAL_TEXT_LENGTH ?= 50
 BOOST_FACTOR ?= 1.5
 WEIGHT_LB_IMPRESSO ?= 3
 MINIMAL_VOTING_SCORE ?= 0.5
-MINIMAL_LID_PROBABILITY ?= 0.25
+MINIMAL_LID_PROBABILITY ?= 0.20
 MINIMAL_VOTE_SCORE ?= 1.5
 
 # evaluation mode
 EVALUATION_OUTPUT_FORMAT ?= json
+
+stage2-dir := stage2
+
+ifeq ($(EVAL_STAGE2),1)
+stage2-dir := stage2-mvs$(MINIMAL_VOTING_SCORE)-mlp$(MINIMAL_LID_PROBABILITY)-wli$(WEIGHT_LB_IMPRESSO)
+endif
 
 # all known collection acronyms from the file system
 COLLECTION_ACRONYMS ?= $(notdir $(wildcard $(IMPRESSO_REBUILT_DATA_DIR)/*))
@@ -177,7 +183,7 @@ impresso-lid-stage1b-target: impresso-lid-stage1a-target \
 ########################################################################################################################
 # Stage 2 second part: Decide for a language given collection statistics and individual content item predictions
 
-impresso-lid-stage2-files := $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_DIR)/stage2,$(impresso-rebuilt-files))
+impresso-lid-stage2-files := $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_DIR)/$(stage2-dir),$(impresso-rebuilt-files))
 
 $(eval $(call debug_variable,impresso-lid-stage2-files))
 
@@ -185,14 +191,14 @@ impresso-lid-stage2-target: impresso-lid-stage1b-target $(impresso-lid-stage2-fi
 
 # python lib/impresso_lid.py -i testbuild/v1.1/stage1/waeschfra/waeschfra-1871.jsonl.bz2 -C testbuild/v1.1/stage1/waeschfra.stats.json  --lids langdetect langid orig_lg impresso_ft wp_ft  --boosted_lids impresso_ft --double_boosted_lids impresso_ft -v 4
 # rule for building all stage 2 files
-$(LID_BUILD_DIR)/stage2/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
+$(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 	mkdir -p $(@D) \
 	&& python lib/impresso_lid.py \
 	 --lids $(LID_SYSTEMS) \
 	 --weight-lb-impresso-ft $(WEIGHT_LB_IMPRESSO) \
 	 --minimal-voting-score $(MINIMAL_VOTING_SCORE) \
 	 --minimal-text-length $(STAGE2_MINIMAL_TEXT_LENGTH) \
-	 --collection-stats-filename $(patsubst %/,%.stats.json,$(subst /stage2,/stage1,$(dir $@))) \
+	 --collection-stats-filename $(patsubst %/,%.stats.json,$(subst /$(stage2-dir),/stage1,$(dir $@))) \
 	 --infile $< \
 	 --outfile $@.working.jsonl.bz2 \
      $(DEBUG_OPTION) \
@@ -202,18 +208,20 @@ $(LID_BUILD_DIR)/stage2/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 	|| { echo "Warning: Something went wrong while building $@. Check $@.log. Cleaning up $@ now." ; rm -vf $@ ; }
 
 
+########################################################################################################################
+# Prepare
 
 
 ########################################################################################################################
 # Evaluate against goldstandard
 
-impresso-lid-eval: $(LID_BUILD_DIR)/stage2.eval.all.$(EVALUATION_OUTPUT_FORMAT)
+impresso-lid-eval: $(LID_BUILD_DIR)/$(stage2-dir).eval.all.$(EVALUATION_OUTPUT_FORMAT)
 
-$(LID_BUILD_DIR)/stage2.eval.all.$(EVALUATION_OUTPUT_FORMAT): impresso-lid-stage2-target
+$(LID_BUILD_DIR)/$(stage2-dir).eval.all.$(EVALUATION_OUTPUT_FORMAT): impresso-lid-stage2-target
 	python lib/impresso_lid_eval.py \
 	< test/ground-truth/all.jsonl \
 	 --file-extension jsonl.bz2 \
-	 --data-dir $(LID_BUILD_DIR)/stage2 \
+	 --data-dir $(LID_BUILD_DIR)/$(stage2-dir) \
 	 --diagnostics-json $(@:json=)diagnostics.jsonl \
 	 --output-format $(EVALUATION_OUTPUT_FORMAT) \
 	 $(DEBUG_OPTION) \

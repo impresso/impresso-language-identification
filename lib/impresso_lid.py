@@ -6,39 +6,9 @@ Classify language of impresso content item given all collected evidence from var
 This script takes two JSON files as input, one with information per content item
 and the other with global statistics.
 
-
-Example JSON with LID predictions per content item:
-    {
-       "tp":"page",
-       "id":"arbeitgeber-1909-01-02-a-i0017",
-       "len":5636,
-       "orig_lg":null,
-       "alphabetical_ratio":0.79,
-       "langdetect": [{"lang": "de", "prob": 1.0}],
-       "langid": [{"lang": "de", "prob": 1.0}],
-       "impresso_ft": [{"lang": "de", "prob": 1.0}],
-       "wp_ft": [{"lang": "de", "prob": 0.95}, {"lang": "en", "prob": 0.01}]}
-    }
-
-Example JSON with aggregated statistics per collection:
-    {
-      "collection": "waeschfra",
-      "total_orig_support_ratio": 0.828916455220374,
-      "textual_content_item_with_orig_lg_count": 14373,
-      "textual_content_item_count": 14587,
-      "orig_lg_support": {"de": 7990.5, "fr": 830 },
-      "orig_lg": {"de": 11511, "fr": 2862, "null": 214},
-      "orig_lg_threshold": {"de": 8487, "fr": 2154},
-      "langidlangdetect": {"de": 7731, "null": 6066, "fr": 785, "nl": 4, "it": 1},
-      "contentitem_type": {"ar": 14373, "img": 5366, "ad": 210, "ob": 1, "tb": 3},
-      "threshold_for_support": 200,
-      "dominant_orig_lg": [{"lang": "de", "count": 11511}, {"lang": "fr", "count": 2862}],
-      "dominant_langidlangdetect": [{"lang": "de", "count": 7731},{"lang": "fr", "count": 785}]
-    }
-
 """
 
-__version__ = "2020.12.08"
+__version__ = "2020.12.18"
 
 import copy
 import datetime
@@ -280,8 +250,8 @@ class ImpressoLanguageIdentifier(object):
                 other_lg = min(all_but_impresso_ft_lid_languages)
                 if other_lg not in {"de", "fr"}:
                     jinfo["lg"] = other_lg
-                    jinfo["lg_decision"] = "other"
-                    self.decision_distribution["other"] += 1
+                    jinfo["lg_decision"] = "all-but-impresso_ft"
+                    self.decision_distribution["all-but-impresso_ft"] += 1
                     self.results.append(jinfo)
                     continue
 
