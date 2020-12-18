@@ -295,8 +295,8 @@ class ImpressoLanguageIdentifier(object):
 
             votes = self.get_votes(old_jinfo)
             log.debug(f"VOTES={votes} {jinfo}")
-            if log.level == 10:
-                jinfo["votes"] = votes.most_common()
+            # keep the votes in for now
+            jinfo["votes"] = votes.most_common()
             if len(votes) < 1 or (
                 len(votes) > 1
                 and votes.most_common(n=1)[0][1] < self.minimal_voting_score
