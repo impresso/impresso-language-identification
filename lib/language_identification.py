@@ -5,7 +5,7 @@
 Compute language identification classes and their probabilities with different LID systems.
 """
 
-__version__ = "2020.12.09"
+__version__ = "2020.12.18"
 
 import datetime
 import logging
