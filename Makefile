@@ -58,7 +58,7 @@ endif
 IMPRESSO_REBUILT_DATA_DIR ?= rebuilt-data
 
 # Language identification version
-LID_VERSION ?= v1.3
+LID_VERSION ?= v1.4
 
 # build dir
 BUILD_DIR ?= build
@@ -123,22 +123,22 @@ $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
 	mkdir -p $(@D) \
 	&& if test -e $@.running ; \
 	    then { echo "Already building $@ " && exit 0 ; } ; \
-	    else { touch $@.running ; echo "$$(date -Iseconds) Building $@ now..." ; }  ; \
+	    else { echo "$${HOSTNAME}" > $@.running ; echo "$$(date -Iseconds) Building $@ now..." ; }  ; \
 	   fi \
+	&& trap 'rm -fv $@.running' EXIT HUP TERM SIGINT \
 	&& python lib/language_identification.py \
 	    --lids $(LID_SYSTEMS) \
 	    --impresso-ft $(IMPPRESSO_FASTTEXT_MODEL) \
 	    --wp-ft $(WIKIPEDIA_FASTTEXT_MODEL) \
 	    --minimal-text-length $(STAGE1A_MINIMAL_TEXT_LENGTH) \
 	    --round-ndigits 3 \
+		--git-describe $$(git describe) \
 	    --infile $< \
 	    --outfile $@.$${HOSTNAME}.working.jsonl.bz2 \
 	    $(DEBUG_OPTION) \
 	    $(TARGET_LOG_MACRO) 1>&2 \
 	&& mv $@.$${HOSTNAME}.working.jsonl.bz2 $@ \
-	&& rm -fv $@.running \
-	&& echo "$$(date -Iseconds) build of $@ finished successfully." \
-	|| rm -fv $@.running
+	&& echo "$$(date -Iseconds) build of $@ finished successfully."
 
 # &> >(tee $@.log >&2)
 # Note: we use the idiom &> >(tee $@.log >&2) because the LID systems output log differently
@@ -164,6 +164,7 @@ $(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%/
 	   --boost-factor $(BOOST_FACTOR) \
 	   --minimal-vote-score $(MINIMAL_VOTE_SCORE) \
 	   --minimal-lid-probability $(MINIMAL_LID_PROBABILITY) \
+	   --git-describe $$(git describe) \
 	   $(DEBUG_OPTION) \
 	   $(<)$(*)*.jsonl.bz2 \
 	   > $@ \
@@ -199,6 +200,7 @@ $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 	 --minimal-voting-score $(MINIMAL_VOTING_SCORE) \
 	 --minimal-text-length $(STAGE2_MINIMAL_TEXT_LENGTH) \
 	 --collection-stats-filename $(patsubst %/,%.stats.json,$(subst /$(stage2-dir),/stage1,$(dir $@))) \
+	 --git-describe $$(git describe) \
 	 --infile $< \
 	 --outfile $@.working.jsonl.bz2 \
      $(DEBUG_OPTION) \
@@ -209,8 +211,13 @@ $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 
 
 ########################################################################################################################
-# Prepare
+# Prepare official distribution for impresso
 
+release-dir :=  $(LID_BUILD_DIR)/$(LID_VERSION)
+impresso-lid-release-files := $(subst $(stage2-dir),$(release-dir),$(impresso-stage2-files))
+
+$(LID_BUILD_DIR)/$(release-dir)/%.json.bz2: $(LID_BUILD_DIR)/
+	# @TODO
 
 ########################################################################################################################
 # Evaluate against goldstandard
