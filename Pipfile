@@ -11,6 +11,7 @@ langid = "*"
 langdetect = "*"
 fasttext = "*"
 smart-open = "*"
+jsonschema = "*"
 
 [requires]
 python_version = "3.8"
