@@ -5,7 +5,7 @@
 Compute language identification classes and their probabilities with different LID systems.
 """
 
-__version__ = "2020.12.18"
+__version__ = "2020.12.21"
 
 import datetime
 import logging
@@ -144,6 +144,7 @@ class LanguageIdentifier(object):
     :param Set[str] lids: Set of LID systems predict to language/probability pairs.
         Therefore, orig_lg is not seen as LID system as it "predicts" only a single language if any.    :attr type results: Description of parameter `results`.
     :param int round_ndigits: Number of decimal places in the output.
+    :param str git_describe: Output of git describe to use as version if not empty string
     :attr list results: Collection of content items with the language prediction of various systems.
 
     """
@@ -157,6 +158,7 @@ class LanguageIdentifier(object):
         minimal_text_length: int,
         lids: list,
         round_ndigits: int,
+        git_describe: str,
     ):
 
         self.infile: str = infile
@@ -170,10 +172,13 @@ class LanguageIdentifier(object):
             f"Predicting with the following off-the-shelve LID systems: {', '.join(lids)}."
         )
         self.round_ndigits = round_ndigits
+        self.git_describe = git_describe
         self.results = []
 
     def run(self):
-        log.info(f"Language identification started with config: {json.dumps(vars(self),default=lambda x: list(x) if isinstance(x,set) else x)}")
+        log.info(
+            f"Language identification started with config: {json.dumps(vars(self),default=lambda x: list(x) if isinstance(x,set) else x)}"
+        )
         self.language_identification()
         self.write_output()
         log.info(f"Language identification finished.")
@@ -212,14 +217,14 @@ class LanguageIdentifier(object):
                     {
                         "tp": j["tp"],
                         "id": j["id"],
-                        "len": len(j["ft"])
-                        if "ft" in j and isinstance(j["ft"], str)
-                        else 0,
-                        "orig_lg": j["lg"] if "lg" in j else None,
-                        "version": __version__,
-                        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(
-                            sep="T", timespec="seconds"
-                        ),
+                        "len": len(j.get("ft", "")),
+                        "orig_lg": j.get("lg"),
+                        "language_identifier": {
+                            "version": self.git_describe or __version__,
+                            "ts": datetime.datetime.now(
+                                datetime.timezone.utc
+                            ).isoformat(sep="T", timespec="seconds"),
+                        },
                     }
                 )
 
@@ -375,7 +380,12 @@ if __name__ == "__main__":
         help="binary fasttext wikipedia LID model labeled wp_ft in the output ",
         metavar="FT2",
     )
-
+    parser.add_argument(
+        "--git-describe",
+        type=str,
+        default="",
+        help="output of git describe command for ingesting git version into JSON as version string",
+    )
     arguments = parser.parse_args()
 
     log_levels = [
@@ -399,6 +409,7 @@ if __name__ == "__main__":
         "minimal_text_length",
         "round_ndigits",
         "lids",
+        "git_describe",
     }
 
     LanguageIdentifier(

@@ -8,7 +8,7 @@ and the other with global statistics.
 
 """
 
-__version__ = "2020.12.18"
+__version__ = "2020.12.21"
 
 import copy
 import datetime
@@ -51,9 +51,10 @@ class ImpressoLanguageIdentifier(object):
     :param float threshold_confidence_orig_lg: Ignore original language information when below this confidence threshold.
     :param Optional[Set[str]] admissible_languages: Limit languages in the ensemble decisions.
         If None, no restrictions are applied.
+    :param str git_describe: Output of git describe to use as version if not empty string
 
     :attr str version: Version of the collection script.
-    :attr list attrs_for_json: Defines list of attributes to copy over from stage 1 content items' JSON.
+    :attr list attrs_for_json: Defines order of attributes and list of attributes to copy over from stage 1 content items' JSON.
     :attr Counter decision_distribution: Distribution over rules to predict a language.
     :attr list results: Collection of content items with their identified language.
 
@@ -71,27 +72,32 @@ class ImpressoLanguageIdentifier(object):
         minimal_voting_score: float,
         threshold_confidence_orig_lg: float,
         admissible_languages: Optional[Set[str]],
+        git_describe: str,
     ):
 
-        self.version: str = __version__
+        self.git_describe: str = git_describe
+
+        self.lids: Set[str] = set(lid for lid in lids if lid != "orig_lg")
 
         self.attrs_from_content_item: list = [
             "id",
+            "lg",  # initially set to None
+            "lg_decision",  # initially set to None
             "tp",
             "len",
             "orig_lg",
             "alphabetical_ratio",
-        ]
+            "impresso_language_identifier",  # initially set to None
+            "language_identifier",
+        ] + sorted(self.lids)
 
         self.infile: str = infile
 
         self.outfile: str = outfile
 
-        self.lids: Set[str] = set(lid for lid in lids if lid != "orig_lg")
-
         if len(self.lids) < 1:
             log.error(
-                "No LID models provided. At least one language identificator needed."
+                "No LID systems specified. At least one language identificator is needed."
             )
             exit(2)
 
@@ -181,23 +187,25 @@ class ImpressoLanguageIdentifier(object):
         return decision
 
     def classify_language_per_item(self) -> None:
+        """Classify all content items and update self.results accordingly"""
 
-        # we destructively modify the dictionary
         for old_jinfo in self.next_contentitem():
-            log.info(f"Process {old_jinfo['id']}")
+            log.info(f"Processing {old_jinfo['id']}")
             jinfo = {}
 
-            jinfo.update(
-                {
-                    "version": __version__,
-                    "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(
-                        sep="T", timespec="seconds"
-                    ),
-                }
-            )
             # copy relevant attributes from stage 1 for each content item
             for attr in self.attrs_from_content_item:
                 jinfo[attr] = copy.copy(old_jinfo.get(attr))
+            jinfo.update(
+                {
+                    "impresso_language_identifier": {
+                        "version": self.git_describe or __version__,
+                        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(
+                            sep="T", timespec="seconds"
+                        ),
+                    }
+                }
+            )
 
             if jinfo["tp"] == "img":
                 self.results.append(jinfo)
@@ -266,7 +274,9 @@ class ImpressoLanguageIdentifier(object):
             votes = self.get_votes(old_jinfo)
             log.debug(f"VOTES={votes} {jinfo}")
             # keep the votes in for now
-            jinfo["votes"] = votes.most_common()
+            jinfo["votes"] = [
+                {"lang": k, "vote": round(v, 3)} for k, v in votes.most_common()
+            ]
             if len(votes) < 1 or (
                 len(votes) > 1
                 and votes.most_common(n=1)[0][1] < self.minimal_voting_score
@@ -373,6 +383,12 @@ if __name__ == "__main__":
         help="Names of languages considered in the ensemble decisions. "
         "If None, no restrictions are applied (default: %(default)s)",
     )
+    parser.add_argument(
+        "--git-describe",
+        type=str,
+        default="",
+        help="output of git describe command for ingesting git version into JSON as version string",
+    )
 
     arguments = parser.parse_args()
 
@@ -398,6 +414,7 @@ if __name__ == "__main__":
         "threshold_confidence_orig_lg",
         "minimal_voting_score",
         "admissible_languages",
+        "git_describe",
     }
     # launching application ...
     ImpressoLanguageIdentifier(

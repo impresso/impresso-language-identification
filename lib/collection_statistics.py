@@ -22,7 +22,7 @@ per content item. Example:
 
 """
 
-__version__ = "2020.12.02"
+__version__ = "2020.12.21"
 
 import datetime
 import json
@@ -69,6 +69,7 @@ class AggregatorLID:
     :param float minimal_vote_score: Minimal vote score from ensemble to reach a decision.
     :param float minimal_lid_probability: Minimal probability from a LID decision to be considered a vote.
     :param int minimal_text_length: Threshold on article length in chars for computing LID support by ensemble.
+    :param str git_describe: Output of git describe to use as version if not empty string
     :param int round_ndigits: Number of decimal places in the output.
 
     :attr str version: Version of the collection script.
@@ -107,9 +108,8 @@ class AggregatorLID:
         minimal_text_length: int,
         round_ndigits: int,
         admissible_languages: Optional[Set[str]],
+        git_describe: str,
     ):
-
-        self.version = __version__
 
         self.attrs_for_json: list = [
             # configured information
@@ -126,9 +126,14 @@ class AggregatorLID:
             "lg_support",
             "contentitem_type_distribution",
             # administrative information
-            "version",
-            "ts",
+            "aggregator_lid",
         ]
+        self.aggregator_lid: dict = {
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(
+                sep="T", timespec="seconds"
+            ),
+            "version": git_describe or __version__,
+        }
 
         self.infile: str = infile
 
@@ -185,19 +190,6 @@ class AggregatorLID:
         self.contentitem_type_distribution: Counter = Counter()
 
         self.content_length_stats: Counter = Counter()
-
-    @property
-    def ts(self) -> str:
-        """Return ISO timestamp in impresso style.
-
-        :return: A timestamp.
-        :rtype: str
-
-        """
-
-        return datetime.datetime.now(datetime.timezone.utc).isoformat(
-            sep="T", timespec="seconds"
-        )
 
     def run(self):
         """Run the application"""
@@ -478,7 +470,7 @@ if __name__ == "__main__":
         metavar="n",
         default=200,
         type=int,
-        help="threshold on article length in chars for computing support (default %(default)s)",
+        help="Threshold on article length in chars for computing support (default %(default)s)",
     )
     parser.add_argument(
         "--boost-factor",
@@ -531,6 +523,13 @@ if __name__ == "__main__":
         "If None, no restrictions are applied (default: %(default)s)",
     )
     parser.add_argument(
+        "--git-describe",
+        type=str,
+        default="",
+        help="output of git describe command for ingesting git version into JSON as version string",
+    )
+
+    parser.add_argument(
         "infile",
         metavar="INPUT",
         nargs="+",
@@ -562,6 +561,7 @@ if __name__ == "__main__":
         "minimal_lid_probability",
         "minimal_text_length",
         "round_ndigits",
+        "git_describe",
         "admissible_languages",
     }
 
