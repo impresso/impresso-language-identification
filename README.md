@@ -26,11 +26,11 @@ metadata on the language of their content items:
 
 As a result, neither the available metadata nor the individual predictions of a
 classifier are sufficient to predict the correct language. Therefore, we follow
-a threefold approach:
+a  three-step approach:
 
-1. predict the language of an article using various LID classifiers (stage 1a)
-2. aggregate the predictions and make ensemble decision and assess overall
-   confidence of a classifier (stage 1b)
+1. predict the language of an article using various probabilistic language identification classifiers (stage 1a)
+2. aggregate the predictions, compute an ensemble decision for longer articles and assess the
+   confidence of a classifier by comparing against the ensemble decision (stage 1b)
 3. predict the final language of an article following a rule-based approach and
    ensemble voting (stage 2)
 
@@ -43,20 +43,29 @@ Following these steps, you can produce the language identification JSON files
 underlying the Impresso interface and the downstream processing.
 
 ## Prerequisites
+The build process has been tested on modern Linux and MacOS systems and requires Python 3.8. Under Debian, make sure to have the following packages installed:
+
+```sh
+$ # install python3.8 according to your OS
+$ sudo apt-get install git git-lfs make coreutils 
+```
 
 This repository uses `pipenv`.
 
-``` bash
-$ pipenv install
-$ pipenv shell
+```sh
+$ git clone https://github.com/impresso/impresso-language-identification.git
+$ cd impresso-language-identification
+$ python3.8 -mpip install pipenv
+$ python3.8 -mpipenv install
+$ python3.8 -mpipenv shell
 ```
 
 For processing, you have to provide a symbolic link called `rebuilt-data` inside
 the repository that resolves into the impresso rebuilt data set. Alternatively,
 you can set the environment variable before running the build commands from the
-next section.
+next section. The folder `test/rebuilt-data` contains some test data to play with.
 
-```bash
+```sh
 export IMPRESSO_REBUILT_DATA_DIR=/PATH/TO/DIRECTORY
 ```
 
@@ -72,8 +81,8 @@ make impresso-lid-stage1a-target
 
 This step produces a JSON file per year per collection. As this takes a lot of
 time, you may want to parallelize the process using multiple machines that work
-on the same shared files. To avoid redundant operations and the overwriting of
-files, the Makefile uses a file lock mechanism.
+on the same shared files. To avoid redundant operations and  overwriting of
+files, the Makefile implements a file lock mechanism.
 
 Properties of standard LID tools used in impresso:
 
@@ -84,7 +93,7 @@ Properties of standard LID tools used in impresso:
   - `wp_ft` wikipedia model delivered by fasttext (recognizes many languages,
       incl. `lb`): [https://fasttext.cc/docs/en/language-identification.html]()
   - `impresso_ft` impresso model based on fasttext (recognizes exactly
-    `fr/de/lb`)
+    `fr/de/lb/en/it`)
 
 
 ## Stage 1b: Computing collection statistics
