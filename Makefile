@@ -164,7 +164,7 @@ impresso-lid-stage1a-done-files := $(foreach ca,$(COLLECTION_ACRONYMS),$(LID_BUI
 
 # template for specifying per collection
 define stage1a_done_rule_template
-$(LID_BUILD_DIR)/stage1/$(ca).done : $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_DIR)/stage1,$(wildcard $(IMPRESSO_REBUILT_DATA_DIR)/$(ca)/*.jsonl.bz2))
+$(LID_BUILD_DIR)/stage1/$(ca).done : $(filter /$(ca)/,$(impresso-lid-stage1a-files))
 	touch $$@
 
 endef
