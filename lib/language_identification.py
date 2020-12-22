@@ -8,6 +8,7 @@ Compute language identification classes and their probabilities with different L
 __version__ = "2020.12.21"
 
 import datetime
+import json
 import logging
 import re
 import sys
@@ -15,17 +16,12 @@ from collections import Counter
 from typing import Dict, List, Optional, Iterable, Set, Union
 
 import fasttext
-
-import json
 import langdetect
 from langdetect.lang_detect_exception import LangDetectException
 from langid import langid
 from smart_open import open
 
 log = logging.getLogger(__name__)
-
-langdetect.DetectorFactory.seed = 42
-
 
 def alphabetical_ratio(text: str) -> Optional[float]:
     """Return the percentage of alphabetic characters of a text
@@ -79,7 +75,8 @@ def average_distribution(
 
 
 def avg_langdetect_lid(
-    text: str, n: int, threshold: float = 0.95, round_ndigits: int = 9
+        text: str, n: int, threshold: float = 0.95, seed: int = 42, default_languages: Set[str] = {"de", "fr"},
+        round_ndigits: int = 9
 ) -> List[Dict[str, Union[str, float]]]:
     """Compute averaged lid score from n samples using Langdetect.
 
@@ -88,17 +85,21 @@ def avg_langdetect_lid(
     :param int round_ndigits: Number of decimal places for probabilities.
     :param str text: Text to classify.
     :param int n: Number of samples.
+    :param int seed: Initial random seed for langdetect
+    :param Set[str] default_languages: Set of language where early stopping is allowed for highly probably languages
     :param float threshold: Threshold for early-stopping of sampling.
     :return: Dictionary with the averaged probabilities per language
     :rtype: List[Dict[str, float]]
 
     """
+    langdetect.DetectorFactory.seed = seed
 
     results = []
     for i in range(n):
+        langdetect.DetectorFactory.seed += i
         result = langdetect.detect_langs(text)
         results.append(result)
-        if result[0].prob > threshold:
+        if result[0].prob > threshold and result[0].lang in default_languages:
             break
 
     return average_distribution(results, round_ndigits)
@@ -313,9 +314,9 @@ class LanguageIdentifier(object):
         """
 
         with open(self.infile, encoding="utf-8") as reader:
-            for l in reader:
-                if l.strip():
-                    yield json.loads(l)
+            for line in reader:
+                if line.strip():
+                    yield json.loads(line)
 
 
 if __name__ == "__main__":
