@@ -116,12 +116,9 @@ impresso-rebuilt-files := \
 
 impresso-lid-stage1a-files := $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_DIR)/stage1,$(impresso-rebuilt-files))
 
-# a .done stamp file for each collection to indicate completion for the next stage
-impresso-lid-stage1a-done-files := $(foreach ca,$(COLLECTION_ACRONYMS),$(LID_BUILD_DIR)/stage1/$(ca).done)
-
 $(eval $(call debug_variable,impresso-lid-stage1a-files))
 
-impresso-lid-stage1a-target: $(impresso-lid-stage1a-files) $(impresso-lid-stage1a-done-files)
+impresso-lid-stage1a-target: $(impresso-lid-stage1a-files)
 
 
 $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
@@ -130,7 +127,7 @@ $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
 	    then { echo "Already building $@ " && exit 0 ; } ; \
 	    else { echo "$${HOSTNAME}" > $@.running ; echo "$$(date -Iseconds) Building $@ now..." ; }  ; \
 	   fi \
-	&& trap 'rm -fv $@.running' EXIT HUP TERM SIGINT \
+	&& trap 'rm -fv $@.running ' EXIT HUP TERM SIGINT \
 	&& python lib/language_identification.py \
 	    --lids $(LID_SYSTEMS) \
 	    --impresso-ft $(IMPPRESSO_FASTTEXT_MODEL) \
@@ -149,6 +146,22 @@ $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
 # Note: we use the idiom &> >(tee $@.log >&2) because the LID systems output log differently
 # https://stackoverflow.com/questions/692000/how-do-i-write-stderr-to-a-file-while-using-tee-with-a-pipe
 
+
+
+########################################################################################################################
+# Stage 1b second part: Collect lid statistics per collection
+# As stage 1a can be run in parallel on multiple machines we have to compute the successfull finishing of all stage 1a file before actually doing stage 1b
+
+# collect statistics on stage 1a results per newspaper
+impresso-lid-stage1b-files:= \
+  $(addprefix $(LID_BUILD_DIR)/stage1/,\
+  	$(foreach ca,$(COLLECTION_ACRONYMS),$(ca).stats.json))
+
+$(eval $(call debug_variable,impresso-lid-stage1b-files))
+
+# a .done stamp file for each collection to indicate completion for the next stage
+impresso-lid-stage1a-done-files := $(foreach ca,$(COLLECTION_ACRONYMS),$(LID_BUILD_DIR)/stage1/$(ca).done)
+
 # template for specifying per collection
 define stage1a_done_rule_template
 $(LID_BUILD_DIR)/stage1/$(ca).done : $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_DIR)/stage1,$(wildcard $(IMPRESSO_REBUILT_DATA_DIR)/$(ca)/*.jsonl.bz2))
@@ -157,18 +170,6 @@ $(LID_BUILD_DIR)/stage1/$(ca).done : $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_
 endef
 
 $(eval $(foreach ca,$(COLLECTION_ACRONYMS),$(stage1a_done_rule_template)))
-
-
-
-########################################################################################################################
-# Stage 1b second part: Collect lid statistics per collection
-
-# collect statistics on stage 1a results per newspaper
-impresso-lid-stage1b-files:= \
-  $(addprefix $(LID_BUILD_DIR)/stage1/,\
-  	$(foreach ca,$(COLLECTION_ACRONYMS),$(ca).stats.json))
-
-$(eval $(call debug_variable,impresso-lid-stage1b-files))
 
 
 $(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%.done
@@ -183,14 +184,14 @@ $(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%.done
 	   --git-describe $$(git describe) \
 	   $(DEBUG_OPTION) \
 	   $(<:.done=)/$(*)*.jsonl.bz2 \
-	   > $@ \
+	   | sponge $@ \
 	   $(TARGET_LOG_MACRO)  \
 	&& echo "$$(date -Iseconds) build of $@ finished successfully." \
 	|| { echo "Warning: Something went wrong while building $@. Check $@.log. Cleaning up $@ now." ; rm -vf $@ ; }
 
 
 # Concatenate all newspaper stats in one file
-$(LID_BUILD_DIR)/stage1.stats.json: $(impresso-lid-stage1b-files)
+$(LID_BUILD_DIR)/stage1.stats.json: $(impresso-lid-stage1a-done-files) $(impresso-lid-stage1b-files)
 	cat $+ > $@
 
 impresso-lid-stage1b-target: impresso-lid-stage1a-target \
