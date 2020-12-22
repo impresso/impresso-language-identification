@@ -455,7 +455,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-v",
         "--verbose",
-        default=2,
+        default=3,
         type=int,
         metavar="LEVEL",
         help="set verbosity level: 0=CRITICAL, 1=ERROR, 2=WARNING, 3=INFO 4=DEBUG (default %(default)s)",
