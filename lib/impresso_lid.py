@@ -212,10 +212,13 @@ class ImpressoLanguageIdentifier(object):
                 continue
 
             trust_orig_lg = False
-            if self.collection_stats.get("overall_orig_lg_support"):
+            if (
+                    overall_orig_lg_support := self.collection_stats.get(
+                        "overall_orig_lg_support"
+                    )
+            ):
                 trust_orig_lg = (
-                    self.collection_stats["overall_orig_lg_support"]
-                    > self.threshold_confidence_orig_lg
+                        overall_orig_lg_support > self.threshold_confidence_orig_lg
                 )
 
             dominant_lg = self.collection_stats["dominant_language"]
@@ -228,7 +231,7 @@ class ImpressoLanguageIdentifier(object):
                 # set confidence value of original language information as probability
                 # the original probability was always 1 before
                 orig_lg_support = self.collection_stats["lg_support"]["orig_lg"].get(
-                    old_jinfo["orig_lg"], 0.1
+                    old_jinfo["orig_lg"], 0.001
                 )
                 # use the original language information only
                 old_jinfo["orig_lg"] = [
@@ -255,7 +258,9 @@ class ImpressoLanguageIdentifier(object):
 
             # rule 2b: off-the-shelf LID agree on language other than DE or FR
             if len(all_but_impresso_ft_lid_languages) == 1:
-                other_lg = min(all_but_impresso_ft_lid_languages)
+                other_lg = min(
+                    all_but_impresso_ft_lid_languages
+                )  # min is just used to select the only element
                 if other_lg not in {"de", "fr"}:
                     jinfo["lg"] = other_lg
                     jinfo["lg_decision"] = "all-but-impresso_ft"
@@ -277,9 +282,9 @@ class ImpressoLanguageIdentifier(object):
             jinfo["votes"] = [
                 {"lang": k, "vote": round(v, 3)} for k, v in votes.most_common()
             ]
-            if len(votes) < 1 or (
-                len(votes) > 1
-                and votes.most_common(n=1)[0][1] < self.minimal_voting_score
+            if (
+                    len(votes) < 1
+                    or votes.most_common(n=1)[0][1] < self.minimal_voting_score
             ):
                 jinfo["lg"] = dominant_lg
                 jinfo["lg_decision"] = "dominant-by-lowvote"
@@ -293,7 +298,7 @@ class ImpressoLanguageIdentifier(object):
             self.decision_distribution["voting"] += 1
             self.results.append(jinfo)
 
-        log.critical(f"DECISIONS {self.decision_distribution}")
+        log.debug(f"DECISIONS {self.decision_distribution}")
 
 
 if __name__ == "__main__":
