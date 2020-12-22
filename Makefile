@@ -18,6 +18,8 @@ export SHELLOPTS := errexit:pipefail
 # Note: use this target only on a single build machine
 # If you run the commands on several machines on the same collection each stage has to be finished on all machines
 # before moving to the next stage
+
+#: Run full impresso LID pipeline
 impresso-lid:
 	# INFO: Recursively making  impresso-lid-stage1a-target
 	$(MAKE) $(MAKEFILEFLAG) -f $(firstword $(MAKEFILE_LIST))  impresso-lid-stage1a-target
@@ -114,9 +116,12 @@ impresso-rebuilt-files := \
 
 impresso-lid-stage1a-files := $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_DIR)/stage1,$(impresso-rebuilt-files))
 
+# a .done stamp file for each collection to indicate completion for the next stage
+impresso-lid-stage1a-done-files := $(foreach ca,$(COLLECTION_ACRONYMS),$(LID_BUILD_DIR)/stage1/$(ca).done)
+
 $(eval $(call debug_variable,impresso-lid-stage1a-files))
 
-impresso-lid-stage1a-target: $(impresso-lid-stage1a-files)
+impresso-lid-stage1a-target: $(impresso-lid-stage1a-files) $(impresso-lid-stage1a-done-files)
 
 
 $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
@@ -144,6 +149,17 @@ $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
 # Note: we use the idiom &> >(tee $@.log >&2) because the LID systems output log differently
 # https://stackoverflow.com/questions/692000/how-do-i-write-stderr-to-a-file-while-using-tee-with-a-pipe
 
+# template for specifying per collection
+define stage1a_done_rule_template
+$(LID_BUILD_DIR)/stage1/$(ca).done : $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_DIR)/stage1,$(wildcard $(IMPRESSO_REBUILT_DATA_DIR)/$(ca)/*.jsonl.bz2))
+	touch $$@
+
+endef
+
+$(eval $(foreach ca,$(COLLECTION_ACRONYMS),$(stage1a_done_rule_template)))
+
+
+
 ########################################################################################################################
 # Stage 1b second part: Collect lid statistics per collection
 
@@ -155,7 +171,7 @@ impresso-lid-stage1b-files:= \
 $(eval $(call debug_variable,impresso-lid-stage1b-files))
 
 
-$(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%/
+$(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%.done
 	python lib/collection_statistics.py \
 	   --collection $* \
 	   --lids $(LID_SYSTEMS) \
@@ -166,7 +182,7 @@ $(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%/
 	   --minimal-lid-probability $(MINIMAL_LID_PROBABILITY) \
 	   --git-describe $$(git describe) \
 	   $(DEBUG_OPTION) \
-	   $(<)$(*)*.jsonl.bz2 \
+	   $(<:.done=)/$(*)*.jsonl.bz2 \
 	   > $@ \
 	   $(TARGET_LOG_MACRO)  \
 	&& echo "$$(date -Iseconds) build of $@ finished successfully." \
@@ -217,7 +233,7 @@ release-dir :=  $(LID_BUILD_DIR)/$(LID_VERSION)
 impresso-lid-release-files := $(subst $(stage2-dir),$(release-dir),$(impresso-stage2-files))
 
 $(LID_BUILD_DIR)/$(release-dir)/%.json.bz2: $(LID_BUILD_DIR)/
-	# @TODO
+	# @
 
 ########################################################################################################################
 # Evaluate against goldstandard
