@@ -1,0 +1,3 @@
+[submodule "impresso-schemas"]
+	path = impresso-schemas
+	url = git@github.com:impresso/impresso-schemas.git

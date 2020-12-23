@@ -205,6 +205,7 @@ impresso-lid-stage2-files := $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_DI
 
 $(eval $(call debug_variable,impresso-lid-stage2-files))
 
+#: Generate all stage 2 files
 impresso-lid-stage2-target: impresso-lid-stage1b-target $(impresso-lid-stage2-files)
 
 # python lib/impresso_lid.py -i testbuild/v1.1/stage1/waeschfra/waeschfra-1871.jsonl.bz2 -C testbuild/v1.1/stage1/waeschfra.stats.json  --lids langdetect langid orig_lg impresso_ft wp_ft  --boosted_lids impresso_ft --double_boosted_lids impresso_ft -v 4
@@ -228,17 +229,37 @@ $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 
 
 ########################################################################################################################
-# Prepare official distribution for impresso
+# Prepare official distribution for impresso with files per year
 
 release-dir :=  $(LID_BUILD_DIR)/$(LID_VERSION)
-impresso-lid-release-files := $(subst $(stage2-dir),$(release-dir),$(impresso-stage2-files))
 
-$(LID_BUILD_DIR)/$(release-dir)/%.json.bz2: $(LID_BUILD_DIR)/
-	# @
+impresso-lid-release-files := $(subst $(LID_BUILD_DIR)/$(stage2-dir),$(release-dir),$(impresso-lid-stage2-files))
+
+$(eval $(call debug_variable,impresso-lid-release-files))
+
+#: Validate all files to be released as processed data
+impresso-lid-release-target : \
+	impresso-lid-stage2-target \
+	$(impresso-lid-release-files)
+
+
+$(release-dir)/%.jsonl.bz2: $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2
+	mkdir -p $(@D) \
+	&& python impresso-schemas/scripts/jsonlschema.py  impresso-schemas/json/language_identification/language_identification.schema.json --input-files $< -o $@
+
+impresso-lid-upload-release-to-s3:
+	cd  $(LID_BUILD_DIR)/ \
+	&& rclone $(LID_VERSION) s3-impresso:/processed-canonical-data/langident
 
 ########################################################################################################################
-# Evaluate against goldstandard
+# Prepare official distribution for impresso with files per year
 
+
+
+########################################################################################################################
+# Evaluate against gold standard
+
+#: Perform evaluation
 impresso-lid-eval: $(LID_BUILD_DIR)/$(stage2-dir).eval.all.$(EVALUATION_OUTPUT_FORMAT)
 
 $(LID_BUILD_DIR)/$(stage2-dir).eval.all.$(EVALUATION_OUTPUT_FORMAT): impresso-lid-stage2-target

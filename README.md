@@ -43,11 +43,11 @@ Following these steps, you can produce the language identification JSON files
 underlying the Impresso interface and the downstream processing.
 
 ## Prerequisites
-The build process has been tested on modern Linux and MacOS systems and requires Python 3.8. Under Debian, make sure to have the following packages installed:
+The build process has been tested on modern Linux and macOS systems and requires Python 3.8. Under Debian, make sure to have the following packages installed:
 
 ```sh
 $ # install python3.8 according to your OS
-$ sudo apt-get install git git-lfs make coreutils 
+$ sudo apt-get install git git-lfs make moreutils 
 ```
 
 This repository uses `pipenv`.
