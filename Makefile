@@ -60,7 +60,7 @@ endif
 IMPRESSO_REBUILT_DATA_DIR ?= rebuilt-data
 
 # Language identification version
-LID_VERSION ?= v1.4
+LID_VERSION ?= v1.4.1
 
 # build dir
 BUILD_DIR ?= build
@@ -82,7 +82,7 @@ STAGE2_MINIMAL_TEXT_LENGTH ?= 50
 
 # hyperparameters for scoring the languages
 BOOST_FACTOR ?= 1.5
-WEIGHT_LB_IMPRESSO ?= 3
+WEIGHT_LB_IMPRESSO ?= 6
 MINIMAL_VOTING_SCORE ?= 0.5
 MINIMAL_LID_PROBABILITY ?= 0.20
 MINIMAL_VOTE_SCORE ?= 1.5

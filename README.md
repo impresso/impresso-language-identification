@@ -127,7 +127,7 @@ content item in stage 2.
 
 To perform this stage, run the following command:
 
-```bash  
+```sh
 make impresso-lid-stage1-target  
 ```
 
@@ -159,7 +159,7 @@ we finally decide the language of an article according to the following rules:
    a similar voting technique as in the global statistics step of stage 1b in
    which the votes are weighed based on their confidence. As the `impresso_ft`
    is the only reliable system for predicting Luxembourgish, it has the power to
-   overrule other predictions with an additional vote weighting factor of `3`
+   overrule other predictions with an additional vote weighting factor of `6`
    when predicting `lb`.
    
     - If the sum of all votes is below the threshold of `0.5`, we simply choose
