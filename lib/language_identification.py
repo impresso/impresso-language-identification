@@ -220,7 +220,7 @@ class LanguageIdentifier(object):
                         "id": j["id"],
                         "len": len(j.get("ft", "")),
                         "orig_lg": j.get("lg"),
-                        "language_identifier": {
+                        "language_identifier_version": {
                             "version": self.git_describe or __version__,
                             "ts": datetime.datetime.now(
                                 datetime.timezone.utc

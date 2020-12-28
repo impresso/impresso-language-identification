@@ -87,8 +87,8 @@ class ImpressoLanguageIdentifier(object):
             "len",
             "orig_lg",
             "alphabetical_ratio",
-            "impresso_language_identifier",  # initially set to None
-            "language_identifier",
+            "impresso_language_identifier_version",  # initially set to None
+            "language_identifier_version",
         ] + sorted(self.lids)
 
         self.infile: str = infile
@@ -126,7 +126,7 @@ class ImpressoLanguageIdentifier(object):
             writer.write_all(self.results)
 
     def next_contentitem(self) -> Iterable[dict]:
-        with open(self.infile, encoding="utf-8") as reader:
+        with open(self.infile, mode="r", encoding="utf-8") as reader:
             json_reader = jsonlines.Reader(reader)
             for jdata in json_reader:
                 yield jdata
@@ -198,7 +198,7 @@ class ImpressoLanguageIdentifier(object):
                 jinfo[attr] = copy.copy(old_jinfo.get(attr))
             jinfo.update(
                 {
-                    "impresso_language_identifier": {
+                    "impresso_language_identifier_version": {
                         "version": self.git_describe or __version__,
                         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(
                             sep="T", timespec="seconds"
