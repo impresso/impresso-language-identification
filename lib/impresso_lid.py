@@ -54,7 +54,7 @@ class ImpressoLanguageIdentifier(object):
     :param str git_describe: Output of git describe to use as version if not empty string
 
     :attr str version: Version of the collection script.
-    :attr list attrs_for_json: Defines order of attributes and list of attributes to copy over from stage 1 content items' JSON.
+    :attr list attrs_for_json: Defines order of attributes and list of attributes to copy over from stage 1 content items' JSON and nullable attributes from stage 2
     :attr Counter decision_distribution: Distribution over rules to predict a language.
     :attr list results: Collection of content items with their identified language.
 
@@ -79,17 +79,35 @@ class ImpressoLanguageIdentifier(object):
 
         self.lids: Set[str] = set(lid for lid in lids if lid != "orig_lg")
 
-        self.attrs_from_content_item: list = [
-            "id",
-            "lg",  # initially set to None
-            "lg_decision",  # initially set to None
-            "tp",
-            "len",
-            "orig_lg",
-            "alphabetical_ratio",
-            "impresso_language_identifier_version",  # initially set to None
-            "language_identifier_version",
-        ] + sorted(self.lids)
+        self.attrs_from_content_item: list = (
+                [
+                    {"key": "id", "required": True, "source": "language_identifier"},
+                    {"key": "lg", "required": True},
+                    {"key": "lg_decision", "required": False},
+                    {"key": "tp", "required": True, "source": "language_identifier"},
+                    {"key": "len", "required": True, "source": "language_identifier"},
+                    {"key": "orig_lg", "required": True, "source": "language_identifier"},
+                    {
+                        "key": "alphabetical_ratio",
+                        "required": False,
+                        "source": "language_identifier",
+                    },
+                    {
+                        "key": "impresso_language_identifier_version",
+                        "required": False,
+                    },
+                    {
+                        "key": "language_identifier_version",
+                        "required": False,
+                        "source": "language_identifier",
+                    },
+                ]
+                + [
+                    {"key": k, "required": False, "source": "language_identifier"}
+                    for k in sorted(self.lids)
+                ]
+                + [{"key": "votes", "required": False}]
+        )
 
         self.infile: str = infile
 
@@ -130,6 +148,20 @@ class ImpressoLanguageIdentifier(object):
             json_reader = jsonlines.Reader(reader)
             for jdata in json_reader:
                 yield jdata
+
+    def cleanup_attrs(self, jinfo: dict) -> dict:
+        """Return copy of jinfo with ordered required attributes
+
+        Attributes with None value that are not required are not copied
+        """
+        result = {}
+        for a in self.attrs_from_content_item:
+            a_key = a["key"]
+            if a.get("required"):
+                result[a_key] = jinfo.get(a_key)
+            elif jinfo.get(a_key) is not None:
+                result[a_key] = jinfo[a_key]
+        return result
 
     def get_best_lid(self, jinfo: dict):
         """
@@ -194,8 +226,9 @@ class ImpressoLanguageIdentifier(object):
             jinfo = {}
 
             # copy relevant attributes from stage 1 for each content item
-            for attr in self.attrs_from_content_item:
-                jinfo[attr] = copy.copy(old_jinfo.get(attr))
+            for e in self.attrs_from_content_item:
+                if e.get("source") == "language_identifier":
+                    jinfo[e["key"]] = copy.copy(old_jinfo.get(e["key"]))
             jinfo.update(
                 {
                     "impresso_language_identifier_version": {
@@ -208,7 +241,7 @@ class ImpressoLanguageIdentifier(object):
             )
 
             if jinfo["tp"] == "img":
-                self.results.append(jinfo)
+                self.results.append(self.cleanup_attrs(jinfo))
                 continue
 
             trust_orig_lg = False
@@ -247,7 +280,7 @@ class ImpressoLanguageIdentifier(object):
                 jinfo["lg"] = min(all_lid_languages)
                 jinfo["lg_decision"] = "all"
                 self.decision_distribution["all"] += 1
-                self.results.append(jinfo)
+                self.results.append(self.cleanup_attrs(jinfo))
                 continue
 
             all_but_impresso_ft_lid_languages = set(
@@ -265,7 +298,7 @@ class ImpressoLanguageIdentifier(object):
                     jinfo["lg"] = other_lg
                     jinfo["lg_decision"] = "all-but-impresso_ft"
                     self.decision_distribution["all-but-impresso_ft"] += 1
-                    self.results.append(jinfo)
+                    self.results.append(self.cleanup_attrs(jinfo))
                     continue
 
             # rule 2c: set dominant language of collection for very short articles
@@ -273,7 +306,7 @@ class ImpressoLanguageIdentifier(object):
                 jinfo["lg"] = dominant_lg
                 jinfo["lg_decision"] = "dominant-by-len"
                 self.decision_distribution["dominant-by-len"] += 1
-                self.results.append(jinfo)
+                self.results.append(self.cleanup_attrs(jinfo))
                 continue
 
             votes = self.get_votes(old_jinfo)
@@ -289,14 +322,14 @@ class ImpressoLanguageIdentifier(object):
                 jinfo["lg"] = dominant_lg
                 jinfo["lg_decision"] = "dominant-by-lowvote"
                 self.decision_distribution["dominant-by-lowvote"] += 1
-                self.results.append(jinfo)
+                self.results.append(self.cleanup_attrs(jinfo))
                 continue
 
             # rule 3: get decision by ensemble voting for less obvious cases
             jinfo["lg"] = votes.most_common(n=1)[0][0]
             jinfo["lg_decision"] = "voting"
             self.decision_distribution["voting"] += 1
-            self.results.append(jinfo)
+            self.results.append(self.cleanup_attrs(jinfo))
 
         log.debug(f"DECISIONS {self.decision_distribution}")
 
