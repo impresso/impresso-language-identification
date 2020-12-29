@@ -340,9 +340,11 @@ class AggregatorLID:
             # update statistics on content item length and ignore very short items
             ci_len = ci.get("len", 0)
             self.content_length_stats[ci_len] += 1
-            if ci_len < self.minimal_text_length:
+            if (
+                    (a_ratio := ci.get("alphabetical_ratio", 0)) < 0.5
+            ) or ci_len * a_ratio < self.minimal_text_length:
                 log.warning(
-                    f"Ignore short content item with a length below threshold: {ci['id']}\t(length: {ci.get('len', 0)})"
+                    f"Ignore short content item: {ci['id']}\t(length: {ci.get('len', 0)})"
                 )
                 continue
 
@@ -550,7 +552,7 @@ if __name__ == "__main__":
         level=log_levels[arguments.verbose],
         format="%(asctime)-15s %(levelname)s: %(message)s",
     )
-    log.info(f'{arguments}')
+    log.info(f"{arguments}")
     aggregator_lid_args = {
         "infile",
         "collection",

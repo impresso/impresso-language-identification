@@ -183,7 +183,7 @@ class ImpressoLanguageIdentifier(object):
                 result[a_key] = jinfo[a_key]
         return result
 
-    def get_best_lid(self, jinfo: dict):
+    def get_best_lid(self, jinfo: dict) -> dict:
         """
         Use only the top prediction per LID
         """
@@ -255,8 +255,10 @@ class ImpressoLanguageIdentifier(object):
             if d.get("source") == "language_identifier":
                 decided_content_item[d["key"]] = copy.copy(content_item.get(d["key"]))
 
-        decided_content_item["collection"] = decided_content_item["id"][0 : len(decided_content_item["id"]) - 19]
-        decided_content_item["year"] = decided_content_item["id"][-18 : -14]
+        decided_content_item["collection"] = decided_content_item["id"][
+            0 : len(decided_content_item["id"]) - 19
+        ]
+        decided_content_item["year"] = decided_content_item["id"][-18:-14]
         decided_content_item.update(
             {
                 "impresso_language_identifier_version": {
@@ -289,7 +291,7 @@ class ImpressoLanguageIdentifier(object):
             # set confidence value of original language information as probability
             # the original probability was always 1 before
             orig_lg_support = self.collection_stats["lg_support"]["orig_lg"].get(
-                content_item["orig_lg"], 0.001
+                content_item["orig_lg"], 0.00001
             )
             # use the original language information only
             content_item["orig_lg"] = [
@@ -315,7 +317,10 @@ class ImpressoLanguageIdentifier(object):
             other_lg = min(
                 all_but_impresso_ft_lid_languages
             )  # min is just used to select the only element
-            if other_lg not in {"de", "fr"}:
+            if other_lg not in {"de", "fr", "en", "it"} and (
+                other_lg in self.collection_stats["lid_distributions"]["ensemble"]
+                and content_item["len"] * content_item["alphabetical_ratio"] >= self.minimal_text_length
+            ):
                 decided_content_item["lg"] = other_lg
                 decided_content_item["lg_decision"] = "all-but-impresso_ft"
                 return self.cleanup_attrs(decided_content_item)
@@ -462,7 +467,7 @@ if __name__ == "__main__":
         level=log_levels[arguments.verbose],
         format="%(asctime)-15s %(levelname)s: %(message)s",
     )
-    log.info(f'{arguments}')
+    log.info(f"{arguments}")
     language_identifier_args = {
         "infile",
         "outfile",
