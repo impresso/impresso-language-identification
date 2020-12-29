@@ -10,6 +10,7 @@
 SHELL := /bin/bash
 export SHELLOPTS := errexit:pipefail
 .SECONDARY:
+.PHONY: impresso-lid impresso-lid-eval impresso-lid-stage1a-target impresso-lid-stage1b-target impresso-lid-stage2-target impresso-lid-upload-release-to-s3 impresso-lid-eval
 
 # generally export all variables to sub-make calls (needed in this Makefile)
 # The targets of stage 1a need the targets of stage 1b to exist
@@ -19,7 +20,7 @@ export SHELLOPTS := errexit:pipefail
 # If you run the commands on several machines on the same collection each stage has to be finished on all machines
 # before moving to the next stage
 
-#: Run full impresso LID pipeline
+#: Run full impresso LID pipeline build
 impresso-lid:
 	# INFO: Recursively making  impresso-lid-stage1a-target
 	$(MAKE) $(MAKEFILEFLAG) -f $(firstword $(MAKEFILE_LIST))  impresso-lid-stage1a-target
@@ -90,6 +91,10 @@ MINIMAL_VOTE_SCORE ?= 1.5
 # evaluation mode
 EVALUATION_OUTPUT_FORMAT ?= json
 
+# S3 bucket path (without "/" suffix)
+S3_BUCKET_LANGIDENT_PATH ?= /processed-canonical-data/langident
+
+
 stage2-dir := stage2
 
 ifeq ($(EVAL_STAGE2),1)
@@ -118,6 +123,7 @@ impresso-lid-stage1a-files := $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_D
 
 $(eval $(call debug_variable,impresso-lid-stage1a-files))
 
+#: Generate all stage 1a files
 impresso-lid-stage1a-target: $(impresso-lid-stage1a-files)
 
 
@@ -187,13 +193,14 @@ $(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%.done
 	   | sponge $@ \
 	   $(TARGET_LOG_MACRO)  \
 	&& echo "$$(date -Iseconds) build of $@ finished successfully." \
-	|| { echo "Warning: Something went wrong while building $@. Check $@.log. Cleaning up $@ now." ; rm -vf $@ ; }
+	|| { echo "Warning: Something went wrong while building $@. Check $@.log. Cleaning up $@ now." ; rm -vf $@ ; exit 1 ; }
 
 
 # Concatenate all newspaper stats in one file
 $(LID_BUILD_DIR)/stage1.stats.json: $(impresso-lid-stage1a-done-files) $(impresso-lid-stage1b-files)
 	cat $+ > $@
 
+#: Generate all stage 1b files
 impresso-lid-stage1b-target: impresso-lid-stage1a-target \
 	$(impresso-lid-stage1b-files) \
 	$(LID_BUILD_DIR)/stage1.stats.json
@@ -215,23 +222,25 @@ $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 	&& python lib/impresso_lid.py \
 	 --lids $(LID_SYSTEMS) \
 	 --weight-lb-impresso-ft $(WEIGHT_LB_IMPRESSO) \
+	 --minimal-lid-probability $(MINIMAL_LID_PROBABILITY) \
 	 --minimal-voting-score $(MINIMAL_VOTING_SCORE) \
 	 --minimal-text-length $(STAGE2_MINIMAL_TEXT_LENGTH) \
 	 --collection-stats-filename $(patsubst %/,%.stats.json,$(subst /$(stage2-dir),/stage1,$(dir $@))) \
 	 --git-describe $$(git describe) \
+	 --diagnostics-json $(@:jsonl.bz2=)diagnostics.json \
 	 --infile $< \
 	 --outfile $@.working.jsonl.bz2 \
      $(DEBUG_OPTION) \
 	 $(TARGET_LOG_MACRO) \
 	&& mv $@.working.jsonl.bz2 $@ \
 	&& echo "$$(date -Iseconds) build of $@ finished successfully." \
-	|| { echo "Warning: Something went wrong while building $@. Check $@.log. Cleaning up $@ now." ; rm -vf $@ ; }
+	|| { echo "Warning: Something went wrong while building $@. Check $@.log. Cleaning up $@ now." ; rm -vf $@ ; exit 1 ; }
 
 
 ########################################################################################################################
 # Prepare official distribution for impresso with files per year
 
-release-dir :=  $(LID_BUILD_DIR)/$(LID_VERSION)
+release-dir :=  $(LID_BUILD_DIR)/s3/$(LID_VERSION)
 
 impresso-lid-release-files := $(subst $(LID_BUILD_DIR)/$(stage2-dir),$(release-dir),$(impresso-lid-stage2-files))
 
@@ -245,14 +254,22 @@ impresso-lid-release-target : \
 
 $(release-dir)/%.jsonl.bz2: $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2
 	mkdir -p $(@D) \
-	&& python impresso-schemas/scripts/jsonlschema.py  impresso-schemas/json/language_identification/language_identification.schema.json --input-files $< -o $@
+	&& python impresso-schemas/scripts/jsonlschema.py  \
+		impresso-schemas/json/language_identification/language_identification.schema.json \
+		--input-files $< \
+		--output-file $@
 
-impresso-lid-upload-release-to-s3:
-	cd  $(LID_BUILD_DIR)/ \
-	&& rclone $(LID_VERSION) s3-impresso:/processed-canonical-data/langident
+$(release-dir)/%.diagnostics.json: $(LID_BUILD_DIR)/$(stage2-dir)/%.diagnostics.json
+	cp -ua $< $@
+
+#: Actually upload the impresso lid information to s3 impresso bucket
+impresso-lid-upload-release-to-s3: impresso-lid-release-target
+	rclone --verbose copy $(LID_BUILD_DIR)/s3/$(LID_VERSION) s3-impresso:$(S3_BUCKET_LANGIDENT_PATH)/$(LID_VERSION) \
+	&& rclone --verbose check $(LID_BUILD_DIR)/s3/$(LID_VERSION)/ s3-impresso:$(S3_BUCKET_LANGIDENT_PATH)/$(LID_VERSION)/
+
 
 ########################################################################################################################
-# Prepare official distribution for impresso with files per year
+# Build
 
 
 
@@ -267,7 +284,7 @@ $(LID_BUILD_DIR)/$(stage2-dir).eval.all.$(EVALUATION_OUTPUT_FORMAT): impresso-li
 	< test/ground-truth/all.jsonl \
 	 --file-extension jsonl.bz2 \
 	 --data-dir $(LID_BUILD_DIR)/$(stage2-dir) \
-	 --diagnostics-json $(@:json=)diagnostics.jsonl \
+	 --diagnostics-json $(@:$(EVALUATION_OUTPUT_FORMAT)=)diagnostics.jsonl \
 	 --output-format $(EVALUATION_OUTPUT_FORMAT) \
 	 $(DEBUG_OPTION) \
 	 $(TARGET_LOG_MACRO) \

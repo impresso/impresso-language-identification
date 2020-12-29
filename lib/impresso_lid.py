@@ -15,7 +15,7 @@ import datetime
 import json
 import logging
 from collections import Counter, defaultdict
-from typing import Iterable, Optional, Set, List
+from typing import Iterable, Optional, Set, List, DefaultDict
 
 import jsonlines
 from smart_open import open
@@ -51,11 +51,11 @@ class ImpressoLanguageIdentifier(object):
     :param float threshold_confidence_orig_lg: Ignore original language information when below this confidence threshold.
     :param Optional[Set[str]] admissible_languages: Limit languages in the ensemble decisions.
         If None, no restrictions are applied.
+    :param Optional[str] diagnostics_json: Filename for diagnostics
     :param str git_describe: Output of git describe to use as version if not empty string
 
-    :attr str version: Version of the collection script.
-    :attr list attrs_for_json: Defines order of attributes and list of attributes to copy over from stage 1 content items' JSON and nullable attributes from stage 2
-    :attr Counter decision_distribution: Distribution over rules to predict a language.
+    :attr list attrs_per_content_item: Defines order of attributes and list of attributes to copy over from stage 1 content items' JSON and nullable attributes from stage 2
+    :attr DefaultDict[Counter] stats: Distribution for any JSON property of interest (given as key)
     :attr list results: Collection of content items with their identified language.
 
     """
@@ -72,41 +72,46 @@ class ImpressoLanguageIdentifier(object):
         minimal_voting_score: float,
         threshold_confidence_orig_lg: float,
         admissible_languages: Optional[Set[str]],
+        diagnostics_json: Optional[str],
         git_describe: str,
     ):
 
         self.git_describe: str = git_describe
 
+        self.diagnostics_json: str = diagnostics_json
+
         self.lids: Set[str] = set(lid for lid in lids if lid != "orig_lg")
 
-        self.attrs_from_content_item: list = (
-                [
-                    {"key": "id", "required": True, "source": "language_identifier"},
-                    {"key": "lg", "required": True},
-                    {"key": "lg_decision", "required": False},
-                    {"key": "tp", "required": True, "source": "language_identifier"},
-                    {"key": "len", "required": True, "source": "language_identifier"},
-                    {"key": "orig_lg", "required": True, "source": "language_identifier"},
-                    {
-                        "key": "alphabetical_ratio",
-                        "required": False,
-                        "source": "language_identifier",
-                    },
-                    {
-                        "key": "impresso_language_identifier_version",
-                        "required": False,
-                    },
-                    {
-                        "key": "language_identifier_version",
-                        "required": False,
-                        "source": "language_identifier",
-                    },
-                ]
-                + [
-                    {"key": k, "required": False, "source": "language_identifier"}
-                    for k in sorted(self.lids)
-                ]
-                + [{"key": "votes", "required": False}]
+        self.attrs_per_content_item: list = (
+            [
+                {"key": "id", "required": True, "source": "language_identifier"},
+                {"key": "lg", "required": True},
+                {"key": "lg_decision", "required": False},
+                {"key": "tp", "required": True, "source": "language_identifier"},
+                {"key": "len", "required": True, "source": "language_identifier"},
+                {"key": "orig_lg", "required": True, "source": "language_identifier"},
+                {
+                    "key": "alphabetical_ratio",
+                    "required": False,
+                    "source": "language_identifier",
+                },
+                {
+                    "key": "impresso_language_identifier_version",
+                    "required": False,
+                },
+                {
+                    "key": "language_identifier_version",
+                    "required": False,
+                    "source": "language_identifier",
+                },
+                {"key": "year", "required": False},
+                {"key": "collection", "required": False},
+            ]
+            + [
+                {"key": k, "required": False, "source": "language_identifier"}
+                for k in sorted(self.lids)
+            ]
+            + [{"key": "votes", "required": False}]
         )
 
         self.infile: str = infile
@@ -130,20 +135,35 @@ class ImpressoLanguageIdentifier(object):
         self.minimal_text_length: float = minimal_text_length
         self.minimal_voting_score: float = minimal_voting_score
 
-        self.decision_distribution: Counter = Counter()
+        self.stats: DefaultDict[str, Counter] = defaultdict(Counter)
+        self.stats_keys: List[str] = ["lg", "orig_lg", "tp", "lg_decision"]
         self.collection_stats: dict = read_json(collection_stats_filename)
         self.results: List[dict] = []
 
     def run(self):
-        self.classify_language_per_item()
-        self.write_output()
+        """Run the application"""
 
-    def write_output(self):
+        self.update_impresso_lid_results()
+        self.write_output()
+        self.update_stats()
+        self.write_diagnostics()
+
+    def write_output(self) -> None:
+        """Write JSONlines output"""
+
         with open(self.outfile, mode="w", encoding="utf-8") as of:
             writer = jsonlines.Writer(of)
             writer.write_all(self.results)
 
-    def next_contentitem(self) -> Iterable[dict]:
+    def write_diagnostics(self) -> None:
+        """Write JSON diagnostics with per-collectio stats"""
+
+        with open(self.diagnostics_json, mode="w", encoding="utf-8") as of:
+            print(json.dumps(self.stats), file=of)
+
+    def next_content_item(self) -> Iterable[dict]:
+        """Yield next content item"""
+
         with open(self.infile, mode="r", encoding="utf-8") as reader:
             json_reader = jsonlines.Reader(reader)
             for jdata in json_reader:
@@ -155,7 +175,7 @@ class ImpressoLanguageIdentifier(object):
         Attributes with None value that are not required are not copied
         """
         result = {}
-        for a in self.attrs_from_content_item:
+        for a in self.attrs_per_content_item:
             a_key = a["key"]
             if a.get("required"):
                 result[a_key] = jinfo.get(a_key)
@@ -218,120 +238,117 @@ class ImpressoLanguageIdentifier(object):
 
         return decision
 
-    def classify_language_per_item(self) -> None:
-        """Classify all content items and update self.results accordingly"""
+    def update_impresso_lid_results(self) -> None:
+        """Update self.results with all language classification decisions"""
 
-        for old_jinfo in self.next_contentitem():
-            log.info(f"Processing {old_jinfo['id']}")
-            jinfo = {}
+        for c in self.next_content_item():
+            log.info(f"Processing {c['id']}")
+            self.results.append(self.decide_lg(c))
 
-            # copy relevant attributes from stage 1 for each content item
-            for e in self.attrs_from_content_item:
-                if e.get("source") == "language_identifier":
-                    jinfo[e["key"]] = copy.copy(old_jinfo.get(e["key"]))
-            jinfo.update(
-                {
-                    "impresso_language_identifier_version": {
-                        "version": self.git_describe or __version__,
-                        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(
-                            sep="T", timespec="seconds"
-                        ),
-                    }
+    def decide_lg(self, content_item: dict) -> dict:
+        """Return a dict with decision information for a content item"""
+
+        decided_content_item = {}
+
+        # copy relevant attributes from stage 1 for each content item
+        for d in self.attrs_per_content_item:
+            if d.get("source") == "language_identifier":
+                decided_content_item[d["key"]] = copy.copy(content_item.get(d["key"]))
+
+        decided_content_item["collection"] = decided_content_item["id"][0 : len(decided_content_item["id"]) - 19]
+        decided_content_item["year"] = decided_content_item["id"][-18 : -14]
+        decided_content_item.update(
+            {
+                "impresso_language_identifier_version": {
+                    "version": self.git_describe or __version__,
+                    "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(
+                        sep="T", timespec="seconds"
+                    ),
                 }
+            }
+        )
+
+        if decided_content_item["tp"] == "img":
+            return self.cleanup_attrs(decided_content_item)
+
+        trust_orig_lg = False
+        if (
+            overall_orig_lg_support := self.collection_stats.get(
+                "overall_orig_lg_support"
             )
+        ) :
+            trust_orig_lg = overall_orig_lg_support > self.threshold_confidence_orig_lg
 
-            if jinfo["tp"] == "img":
-                self.results.append(self.cleanup_attrs(jinfo))
-                continue
+        dominant_lg = self.collection_stats["dominant_language"]
 
-            trust_orig_lg = False
-            if (
-                    overall_orig_lg_support := self.collection_stats.get(
-                        "overall_orig_lg_support"
-                    )
-            ):
-                trust_orig_lg = (
-                        overall_orig_lg_support > self.threshold_confidence_orig_lg
-                )
-
-            dominant_lg = self.collection_stats["dominant_language"]
-
-            # rule 1: ignore original language information when not trustworthy
-            if not trust_orig_lg or not old_jinfo.get("orig_lg"):
-                old_jinfo["orig_lg"] = None
-                self.lids.discard("orig_lg")
-            else:
-                # set confidence value of original language information as probability
-                # the original probability was always 1 before
-                orig_lg_support = self.collection_stats["lg_support"]["orig_lg"].get(
-                    old_jinfo["orig_lg"], 0.001
-                )
-                # use the original language information only
-                old_jinfo["orig_lg"] = [
-                    {"lang": old_jinfo["orig_lg"], "prob": orig_lg_support}
-                ]
-
-            # rule 2
-            all_lid_preds = self.get_best_lid(old_jinfo)
-            all_lid_languages = set(all_lid_preds[lid]["lang"] for lid in all_lid_preds)
-
-            # rule 2a: follow unequivocal predictions
-            if len(all_lid_languages) == 1:
-                jinfo["lg"] = min(all_lid_languages)
-                jinfo["lg_decision"] = "all"
-                self.decision_distribution["all"] += 1
-                self.results.append(self.cleanup_attrs(jinfo))
-                continue
-
-            all_but_impresso_ft_lid_languages = set(
-                all_lid_preds[lid]["lang"]
-                for lid in all_lid_preds
-                if lid != "impresso_ft"
+        # rule 1: ignore original language information when not trustworthy
+        if not trust_orig_lg or not content_item.get("orig_lg"):
+            content_item["orig_lg"] = None
+            self.lids.discard("orig_lg")
+        else:
+            # set confidence value of original language information as probability
+            # the original probability was always 1 before
+            orig_lg_support = self.collection_stats["lg_support"]["orig_lg"].get(
+                content_item["orig_lg"], 0.001
             )
-
-            # rule 2b: off-the-shelf LID agree on language other than DE or FR
-            if len(all_but_impresso_ft_lid_languages) == 1:
-                other_lg = min(
-                    all_but_impresso_ft_lid_languages
-                )  # min is just used to select the only element
-                if other_lg not in {"de", "fr"}:
-                    jinfo["lg"] = other_lg
-                    jinfo["lg_decision"] = "all-but-impresso_ft"
-                    self.decision_distribution["all-but-impresso_ft"] += 1
-                    self.results.append(self.cleanup_attrs(jinfo))
-                    continue
-
-            # rule 2c: set dominant language of collection for very short articles
-            if jinfo["len"] < self.minimal_text_length:
-                jinfo["lg"] = dominant_lg
-                jinfo["lg_decision"] = "dominant-by-len"
-                self.decision_distribution["dominant-by-len"] += 1
-                self.results.append(self.cleanup_attrs(jinfo))
-                continue
-
-            votes = self.get_votes(old_jinfo)
-            log.debug(f"VOTES={votes} {jinfo}")
-            # keep the votes in for now
-            jinfo["votes"] = [
-                {"lang": k, "vote": round(v, 3)} for k, v in votes.most_common()
+            # use the original language information only
+            content_item["orig_lg"] = [
+                {"lang": content_item["orig_lg"], "prob": orig_lg_support}
             ]
-            if (
-                    len(votes) < 1
-                    or votes.most_common(n=1)[0][1] < self.minimal_voting_score
-            ):
-                jinfo["lg"] = dominant_lg
-                jinfo["lg_decision"] = "dominant-by-lowvote"
-                self.decision_distribution["dominant-by-lowvote"] += 1
-                self.results.append(self.cleanup_attrs(jinfo))
-                continue
 
-            # rule 3: get decision by ensemble voting for less obvious cases
-            jinfo["lg"] = votes.most_common(n=1)[0][0]
-            jinfo["lg_decision"] = "voting"
-            self.decision_distribution["voting"] += 1
-            self.results.append(self.cleanup_attrs(jinfo))
+        # rule 2
+        all_lid_preds = self.get_best_lid(content_item)
+        all_lid_languages = set(all_lid_preds[lid]["lang"] for lid in all_lid_preds)
 
-        log.debug(f"DECISIONS {self.decision_distribution}")
+        # rule 2a: follow unequivocal predictions
+        if len(all_lid_languages) == 1:
+            decided_content_item["lg"] = min(all_lid_languages)
+            decided_content_item["lg_decision"] = "all"
+            return self.cleanup_attrs(decided_content_item)
+
+        all_but_impresso_ft_lid_languages = set(
+            all_lid_preds[lid]["lang"] for lid in all_lid_preds if lid != "impresso_ft"
+        )
+
+        # rule 2b: off-the-shelf LID agree on language other than DE or FR
+        if len(all_but_impresso_ft_lid_languages) == 1:
+            other_lg = min(
+                all_but_impresso_ft_lid_languages
+            )  # min is just used to select the only element
+            if other_lg not in {"de", "fr"}:
+                decided_content_item["lg"] = other_lg
+                decided_content_item["lg_decision"] = "all-but-impresso_ft"
+                return self.cleanup_attrs(decided_content_item)
+
+        # rule 2c: set dominant language of collection for very short articles
+        if decided_content_item["len"] < self.minimal_text_length:
+            decided_content_item["lg"] = dominant_lg
+            decided_content_item["lg_decision"] = "dominant-by-len"
+            return self.cleanup_attrs(decided_content_item)
+
+        votes = self.get_votes(content_item)
+
+        # keep the votes in for now
+        decided_content_item["votes"] = [
+            {"lang": k, "vote": round(v, 3)} for k, v in votes.most_common()
+        ]
+        if len(votes) < 1 or votes.most_common(n=1)[0][1] < self.minimal_voting_score:
+            decided_content_item["lg"] = dominant_lg
+            decided_content_item["lg_decision"] = "dominant-by-lowvote"
+            return self.cleanup_attrs(decided_content_item)
+
+        # rule 3: get decision by ensemble voting for less obvious cases
+        decided_content_item["lg"] = votes.most_common(n=1)[0][0]
+        decided_content_item["lg_decision"] = "voting"
+        return self.cleanup_attrs(decided_content_item)
+
+    def update_stats(self) -> None:
+        """Update per-collection statistics for diagnostics"""
+
+        for r in self.results:
+            for p in self.stats_keys:
+                self.stats[p][r.get(p)] += 1
+            self.stats["N"][f'{self.collection_stats["collection"]}-{r["year"]}'] += 1
 
 
 if __name__ == "__main__":
@@ -398,7 +415,11 @@ if __name__ == "__main__":
         type=float,
         help="minimal vote score for voting decision to be accepted (default %(default)s)",
     )
-
+    parser.add_argument(
+        "--diagnostics-json",
+        type=str,
+        help="filename for statistical diagnostics information in JSON format",
+    )
     parser.add_argument(
         "-m",
         "--minimal-text-length",
@@ -441,6 +462,7 @@ if __name__ == "__main__":
         level=log_levels[arguments.verbose],
         format="%(asctime)-15s %(levelname)s: %(message)s",
     )
+    log.info(f'{arguments}')
     language_identifier_args = {
         "infile",
         "outfile",
@@ -452,6 +474,7 @@ if __name__ == "__main__":
         "threshold_confidence_orig_lg",
         "minimal_voting_score",
         "admissible_languages",
+        "diagnostics_json",
         "git_describe",
     }
     # launching application ...

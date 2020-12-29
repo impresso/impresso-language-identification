@@ -47,7 +47,7 @@ The build process has been tested on modern Linux and macOS systems and requires
 
 ```sh
 $ # install python3.8 according to your OS
-$ sudo apt-get install git git-lfs make moreutils 
+$ sudo apt-get install git git-lfs make moreutils rclone
 ```
 
 This repository uses `pipenv`.
