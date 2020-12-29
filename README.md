@@ -106,7 +106,7 @@ decision in the next stage of processing.
 In order to assess the dominant language of a newspaper, we compute the
 statistics per collection according to the following rules:
 
-  - Content items with less than 200 characters are ignored.
+  - Content items with less than 200 non-letter characters are ignored.
   - Content items with an alphabetical ratio < 0.5 are ignored.
   - Every language identification prediction has one vote.
   - If external metadata is available (called `orig_lg` henceforth), it also
@@ -144,11 +144,10 @@ we finally decide the language of an article according to the following rules:
    other LID system.
 
  - If all LID systems agree unequivocally, we choose this language. In practice,
-   this rule only applies to the languages `de` and `fr` due to the limitations
+   this rule only applies to the languages `de`, `fr`, `en` and `it` due to the limitations
    of the `impresso_ft` system. Decision code: `all`.
 
- - If all LID systems except `impresso_ft` agree on a language other than `de`
-   or `fr`, accept this other language. This rule typically applies for `it`,
+ - If all LID systems except `impresso_ft` agree on a language other than `de`, `fr`, `en` or `it`, and if the language has been selected by the ensemble in stage 1b at least once, and if there are at least as many letter characters as the minimal text length specifies, accept this other language. This rule typically applies for
    `la`, or other rare languages.  `lb` is exempt because not all LID systems
    can recognize `lb`. Decision code: `all-but-impresso_ft`.
 
