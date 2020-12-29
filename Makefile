@@ -85,7 +85,8 @@ STAGE2_MINIMAL_TEXT_LENGTH ?= 50
 BOOST_FACTOR ?= 1.5
 WEIGHT_LB_IMPRESSO ?= 6
 MINIMAL_VOTING_SCORE ?= 0.5
-MINIMAL_LID_PROBABILITY ?= 0.20
+STAGE1_MINIMAL_LID_PROBABILITY ?= 0.20
+STAGE2_MINIMAL_LID_PROBABILITY ?= 0.5
 MINIMAL_VOTE_SCORE ?= 1.5
 
 # evaluation mode
@@ -186,7 +187,7 @@ $(LID_BUILD_DIR)/stage1/%.stats.json: $(LID_BUILD_DIR)/stage1/%.done
 	   --minimal-text-length $(STAGE1B_MINIMAL_TEXT_LENGTH) \
 	   --boost-factor $(BOOST_FACTOR) \
 	   --minimal-vote-score $(MINIMAL_VOTE_SCORE) \
-	   --minimal-lid-probability $(MINIMAL_LID_PROBABILITY) \
+	   --minimal-lid-probability $(STAGE1_MINIMAL_LID_PROBABILITY) \
 	   --git-describe $$(git describe) \
 	   $(DEBUG_OPTION) \
 	   $(<:.done=)/$(*)*.jsonl.bz2 \
@@ -222,7 +223,7 @@ $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 	&& python lib/impresso_lid.py \
 	 --lids $(LID_SYSTEMS) \
 	 --weight-lb-impresso-ft $(WEIGHT_LB_IMPRESSO) \
-	 --minimal-lid-probability $(MINIMAL_LID_PROBABILITY) \
+	 --minimal-lid-probability $(STAGE2_MINIMAL_LID_PROBABILITY) \
 	 --minimal-voting-score $(MINIMAL_VOTING_SCORE) \
 	 --minimal-text-length $(STAGE2_MINIMAL_TEXT_LENGTH) \
 	 --collection-stats-filename $(patsubst %/,%.stats.json,$(subst /$(stage2-dir),/stage1,$(dir $@))) \

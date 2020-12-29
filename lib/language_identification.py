@@ -29,7 +29,7 @@ def alphabetical_ratio(text: str) -> Optional[float]:
     All digits, punctuation symbols, layout characters, are removed
 
     :param str text: Any text.
-    :return: Ratio of alphabetic characters wrt to total lenght of text.
+    :return: Ratio of alphabetic characters wrt to total length of text.
     :rtype: float
 
     """
@@ -401,7 +401,7 @@ if __name__ == "__main__":
         level=log_levels[arguments.verbose],
         format="%(asctime)-15s %(levelname)s: %(message)s",
     )
-
+    log.info(f'{arguments}')
     language_identifier_args = {
         "infile",
         "outfile",

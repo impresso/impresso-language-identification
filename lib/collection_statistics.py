@@ -550,7 +550,7 @@ if __name__ == "__main__":
         level=log_levels[arguments.verbose],
         format="%(asctime)-15s %(levelname)s: %(message)s",
     )
-
+    log.info(f'{arguments}')
     aggregator_lid_args = {
         "infile",
         "collection",
