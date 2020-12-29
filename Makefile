@@ -61,7 +61,7 @@ endif
 IMPRESSO_REBUILT_DATA_DIR ?= rebuilt-data
 
 # Language identification version
-LID_VERSION ?= v1.4.1
+LID_VERSION ?= v1.4.2
 
 # build dir
 BUILD_DIR ?= build
