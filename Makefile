@@ -130,8 +130,8 @@ impresso-lid-stage1a-target: $(impresso-lid-stage1a-files)
 
 $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
 	mkdir -p $(@D) \
-	&& if test -e $@.running ; \
-	    then { echo "Already building $@ " && exit 0 ; } ; \
+	&& if test -e $@.running || test -e $@.done ; \
+	    then { echo "Already building/built $@ " && exit 0 ; } ; \
 	    else { echo "$${HOSTNAME}" > $@.running ; echo "$$(date -Iseconds) Building $@ now..." ; }  ; \
 	   fi \
 	&& trap 'rm -fv $@.running ' EXIT HUP TERM SIGINT \
@@ -147,6 +147,7 @@ $(LID_BUILD_DIR)/stage1/%.jsonl.bz2: $(IMPRESSO_REBUILT_DATA_DIR)/%.jsonl.bz2
 	    $(DEBUG_OPTION) \
 	    $(TARGET_LOG_MACRO) 1>&2 \
 	&& mv $@.$${HOSTNAME}.working.jsonl.bz2 $@ \
+	&& mv $@.running $@.done \
 	&& echo "$$(date -Iseconds) build of $@ finished successfully."
 
 # &> >(tee $@.log >&2)
@@ -213,12 +214,13 @@ impresso-lid-stage2-files := $(subst $(IMPRESSO_REBUILT_DATA_DIR),$(LID_BUILD_DI
 
 $(eval $(call debug_variable,impresso-lid-stage2-files))
 
-#: Generate all stage 2 files
-impresso-lid-stage2-target: impresso-lid-stage1b-target $(impresso-lid-stage2-files)
+impresso-lid-stage2-diagnostics-files := $(impresso-lid-stage2-files:.jsonl.bz2=.diagnostics.json)
 
-# python lib/impresso_lid.py -i testbuild/v1.1/stage1/waeschfra/waeschfra-1871.jsonl.bz2 -C testbuild/v1.1/stage1/waeschfra.stats.json  --lids langdetect langid orig_lg impresso_ft wp_ft  --boosted_lids impresso_ft --double_boosted_lids impresso_ft -v 4
+#: Generate all stage 2 files
+impresso-lid-stage2-target: impresso-lid-stage1b-target $(impresso-lid-stage2-files) $(impresso-lid-stage2-diagnostics-files)
+
 # rule for building all stage 2 files
-$(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
+$(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2 $(LID_BUILD_DIR)/$(stage2-dir)/%.diagnostics.json: $(LID_BUILD_DIR)/stage1/%.jsonl.bz2
 	mkdir -p $(@D) \
 	&& python lib/impresso_lid.py \
 	 --lids $(LID_SYSTEMS) \
@@ -270,9 +272,17 @@ impresso-lid-upload-release-to-s3: impresso-lid-release-target
 
 
 ########################################################################################################################
-# Build
+# Produce statistics
+
+#: Compute several statistics on the output of impresso LID
+impresso-lid-statistics: \
+	$(LID_BUILD_DIR)/statistics.d/per-collection-year-contentitems.tsv
 
 
+#: Simple check whether number of content items per collection-year pair matches other impresso processing statistics
+$(LID_BUILD_DIR)/statistics.d/per-collection-year-contentitems.tsv: impresso-lid
+	mkdir -p $(@D) \
+	&& cat $(impresso-lid-stage2-diagnostics-files) | jq -r '.N|to_entries[0]|[.key,.value]|@tsv' | sort | sponge $@
 
 ########################################################################################################################
 # Evaluate against gold standard
