@@ -279,6 +279,13 @@ impresso-lid-statistics: \
 	$(LID_BUILD_DIR)/statistics.d/per-collection-year-contentitems.tsv \
 	$(LID_BUILD_DIR)/statistics.d/collection-year-language-data.tsv
 
+#: Simple check whether number of content items per collection-year pair matches other impresso processing statistics
+$(LID_BUILD_DIR)/statistics.d/per-collection-year-contentitems.tsv: $(impresso-lid-stage2-diagnostics-files)
+	mkdir -p $(@D) \
+	&& cat $+ | jq -r '.N|to_entries[0]|[.key,.value]|@tsv' | sort | sponge $@
+
+$(LID_BUILD_DIR)/statistics.d/collection-year-language-data.tsv: $(impresso-lid-stage2-diagnostics-files)
+	cat $+ | jq -r '(.N|to_entries[0]|.key|split("-"))  as [$$collection,$$year]| (.lg|to_entries|map({key,value,$$collection,$$year})|.[]|[.collection,.year,.key,.value]|sort_by(.0,.1,.2)|@tsv)' |sort | sponge $@
 
 #: Simple check whether number of content items per collection-year pair matches other impresso processing statistics
 $(LID_BUILD_DIR)/statistics.d/per-collection-year-contentitems.tsv: $(impresso-lid-stage2-diagnostics-files)

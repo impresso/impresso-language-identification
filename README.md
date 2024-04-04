@@ -26,11 +26,13 @@ metadata on the language of their content items:
 
 As a result, neither the available metadata nor the individual predictions of a
 classifier are sufficient to predict the correct language. Therefore, we follow
-a  three-step approach:
+a three-step approach:
 
-1. predict the language of an article using various probabilistic language identification classifiers (stage 1a)
-2. aggregate the predictions, compute an ensemble decision for longer articles and assess the
-   confidence of a classifier by comparing against the ensemble decision (stage 1b)
+1. predict the language of an article using various probabilistic language
+   identification classifiers (stage 1a)
+2. aggregate the predictions, compute an ensemble decision for longer articles
+   and assess the confidence of a classifier by comparing against the ensemble
+   decision (stage 1b)
 3. predict the final language of an article following a rule-based approach and
    ensemble voting (stage 2)
 
@@ -43,11 +45,14 @@ Following these steps, you can produce the language identification JSON files
 underlying the Impresso interface and the downstream processing.
 
 ## Prerequisites
-The build process has been tested on modern Linux and macOS systems and requires Python 3.8. Under Debian, make sure to have the following packages installed:
+The build process has been tested on modern Linux and macOS systems and requires
+Python 3.8. Under Debian, make sure to have the following packages installed:
 
 ```sh
 $ # install python3.8 according to your OS
-$ sudo apt-get install git git-lfs make moreutils rclone
+$ sudo apt install git git-lfs make moreutils  # needed for building
+$ sudo apt rclone  # needed for uploading to s3
+$ sudo apt jq  # needed for computing statistics
 ```
 
 This repository uses `pipenv`.
@@ -63,7 +68,8 @@ $ python3.8 -mpipenv shell
 For processing, you have to provide a symbolic link called `rebuilt-data` inside
 the repository that resolves into the impresso rebuilt data set. Alternatively,
 you can set the environment variable before running the build commands from the
-next section. The folder `test/rebuilt-data` contains some test data to play with.
+next section. The folder `test/rebuilt-data` contains some test data to play
+with.
 
 ```sh
 export IMPRESSO_REBUILT_DATA_DIR=/PATH/TO/DIRECTORY
@@ -75,13 +81,13 @@ export IMPRESSO_REBUILT_DATA_DIR=/PATH/TO/DIRECTORY
 We first apply several off-the-shelve LID classifiers and our model to the
 texts. The corresponding build command is:
 
-```bash
+```sh
 make impresso-lid-stage1a-target
 ```
 
 This step produces a JSON file per year per collection. As this takes a lot of
 time, you may want to parallelize the process using multiple machines that work
-on the same shared files. To avoid redundant operations and  overwriting of
+on the same shared files. To avoid redundant operations and overwriting of
 files, the Makefile implements a file lock mechanism.
 
 Properties of standard LID tools used in impresso:
@@ -96,7 +102,7 @@ Properties of standard LID tools used in impresso:
     `fr/de/lb/en/it`)
 
 
-## Stage 1b: Computing collection statistics
+## Stage 1b: Aggregating collection statistics on language
 
 Given the incomplete and sometimes unreliable metadata regarding the content
 items' language, we aggregate statistics per collection to assess the confidence
@@ -134,7 +140,7 @@ make impresso-lid-stage1-target
 This command can only be run after stage 1a has been completely built. It cannot
 be run at the same time via different machines.
 
-## Stage 2: Determining the language per content item
+## Stage 2: Deciding the language per content item
 
 Given the output from various LID systems and the original language information,
 we finally decide the language of an article according to the following rules:
@@ -144,12 +150,15 @@ we finally decide the language of an article according to the following rules:
    other LID system.
 
  - If all LID systems agree unequivocally, we choose this language. In practice,
-   this rule only applies to the languages `de`, `fr`, `en` and `it` due to the limitations
-   of the `impresso_ft` system. Decision code: `all`.
+   this rule only applies to the languages `de`, `fr`, `en` and `it` due to the
+   limitations of the `impresso_ft` system. Decision code: `all`.
 
- - If all LID systems except `impresso_ft` agree on a language other than `de`, `fr`, `en` or `it`, and if the language has been selected by the ensemble in stage 1b at least once, and if there are at least as many letter characters as the minimal text length specifies, accept this other language. This rule typically applies for
-   `la`, or other rare languages.  `lb` is exempt because not all LID systems
-   can recognize `lb`. Decision code: `all-but-impresso_ft`.
+ - If all LID systems except `impresso_ft` agree on a language other than `de`,
+   `fr`, `en` or `it`, and if the language has been selected by the ensemble in
+   stage 1b at least once, and if there are at least as many letter characters
+   as the minimal text length specifies, accept this other language. This rule
+   typically applies for `la`, or other rare languages.  `lb` is exempt because
+   not all LID systems can recognize `lb`. Decision code: `all-but-impresso_ft`.
 
  - If the text is shorter than 50 characters, we choose the dominant language of
    the newspaper. Decision code: `dominant-by-len`.
@@ -169,17 +178,47 @@ we finally decide the language of an article according to the following rules:
 
 To perform this stage, run the following command:
 
-```bash  
+```sh
 make impresso-lid-stage2-target
 ```
 
 The process of stage 1b and 2 is fast and cannot be run on different machines.
 
+## Preparing the data release
+
+Preparing the LID data release involves the following steps:
+  - Validating the jsonl files from stage 2 according to impresso's [language
+    identification JSON
+    schema](https://github.com/impresso/impresso-schemas/blob/master/json/language_identification/language_identification.schema.json).
+- Copying over the per-collection aggregation statistics from stage 1b.
+- Preparing statistical diagnostics files for the whole impresso collection set
+
+```sh
+make impresso-lid-release-target
+```
+
+After preparing the data one can upload to a configured s3 bucket
+```sh
+make impresso-lid-upload-release-to-s3 
+```
+
+## Creating LID statistics
+During stage 2 for each per-year collection output, diagnostics files in JSON
+format are produced that aggregate the information from the individual content
+item files.
+
+```sh
+make impresso-lid-statistics
+```
+
 ## Parallelization
 
 To run the full LID process on a single machine with N cores, run:
 
-```bash 
+```sh
 make impresso-lid -j N
 ```
-Because the step 1a is taking a lot of time for millions of content items, it is recommended to build in parallel on several machines.
+Because the step 1a is taking a lot of time for millions of content items, it is
+recommended to build in parallel on several machines that can access the same
+storage.
+
