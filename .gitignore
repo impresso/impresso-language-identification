@@ -3,3 +3,4 @@ build/
 test1/
 test?/
 testbuild/
+venv/
