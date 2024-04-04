@@ -61,7 +61,7 @@ endif
 IMPRESSO_REBUILT_DATA_DIR ?= rebuilt-data
 
 # Language identification version
-LID_VERSION ?= v1.4.3
+LID_VERSION ?= v1.4.4
 
 # build dir
 BUILD_DIR ?= build
@@ -77,7 +77,7 @@ IMPPRESSO_FASTTEXT_MODEL ?= models/fasttext/impresso-lid.bin
 WIKIPEDIA_FASTTEXT_MODEL ?= models/fasttext/lid.176.bin
 
 # minimal text length threshold for automatic LID in stage 1 and 2
-STAGE1A_MINIMAL_TEXT_LENGTH ?= 20
+STAGE1A_MINIMAL_TEXT_LENGTH ?= 40
 STAGE1B_MINIMAL_TEXT_LENGTH ?= 200
 STAGE2_MINIMAL_TEXT_LENGTH ?= 50
 
@@ -311,4 +311,3 @@ $(LID_BUILD_DIR)/$(stage2-dir).eval.all.$(EVALUATION_OUTPUT_FORMAT): impresso-li
 	 $(DEBUG_OPTION) \
 	 $(TARGET_LOG_MACRO) \
 	 | sponge $@
-
