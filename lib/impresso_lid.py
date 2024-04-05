@@ -1,5 +1,5 @@
-#!/usr/bin/env python3
-
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
 """
 Classify language of impresso content item given all collected evidence from various sources
 

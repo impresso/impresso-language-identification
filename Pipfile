@@ -6,7 +6,6 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-impresso-commons ="*"
 jsonlines = "*"
 langid = "*"
 langdetect = "*"
