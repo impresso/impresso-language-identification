@@ -103,7 +103,8 @@ stage2-dir := stage2-mvs$(MINIMAL_VOTING_SCORE)-mlp$(MINIMAL_LID_PROBABILITY)-wl
 endif
 
 # all known collection acronyms from the file system
-COLLECTION_ACRONYMS ?= $(notdir $(wildcard $(IMPRESSO_REBUILT_DATA_DIR)/*))
+# but filter out anything with a hyphen in it, e.g. rebuilt_v1-1-0.json
+COLLECTION_ACRONYMS ?= $(filter-out %-%, $(notdir $(wildcard $(IMPRESSO_REBUILT_DATA_DIR)/*)))
 
 # emit content of make variable if $(DEBUG) is set to 1
 $(eval $(call debug_variable,COLLECTION_ACRONYMS))
