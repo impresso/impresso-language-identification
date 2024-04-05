@@ -1,0 +1,236 @@
+########################################################################################## 
+# Makefile for impresso language identification 
+#
+# Note: Processing is done on local data. Not directly on s3 storage.
+
+
+########################################################################################## 
+# Make setup
+
+SHELL:=/bin/bash
+export SHELLOPTS:=errexit:pipefail
+
+.SECONDARY:
+
+# emit additional diagnostics
+DEBUG ?= 0
+
+
+########################################################################################## 
+# Make variables for impresso data infrastructure 
+
+# make sure that this directory points to a local copy of the impresso s3 data
+# only read access is needed
+IMPRESSO-REBUILT-DATA-DIR ?= rebuilt-data
+
+# make sure that this directory points to a local copy of the impresso s3 data
+# write access is needed
+IMPRESSO-PROCESSED-DATA-DIR ?= processed-data
+
+# Language identification version
+LID-VERSION ?= v1.1
+
+# 
+
+IMPPRESSO-FASTTEXT-MODEL ?= models/fasttext/full-LID-20-80-10-2-4.bin
+WIKIPEDIA-FASTTEXT-MODEL ?= models/fasttext/lid.176.bin
+
+
+
+CANONICAL_DIR:=/srv/scratch2/climpresso/s3data/canonical-rebuilt-release
+OUTPUT_DIR:=data/processed-canonical-data/language_identification/$(VERSION)
+IMPRESSO_NEWSPAPERS_ACRONYMS?=/srv/scratch2/climpresso/s3data/newspapers.txt
+
+
+
+collection_acronym:=$(strip $(file <$(IMPRESSO_NEWSPAPERS_ACRONYMS)))
+
+non-lux-collection:=BDC,CDV,DLE,EDA,EXP,GDL,IMP,JDF,JDG,JDV,LBP,LCE,LCG,LCR,LCS,LES,LNF,LSE,LSR,LTF,LVE,EXP
+lux2-collection:=actionfem,avenirgdl,buergerbeamten,deletz1893,demitock,dunioun,gazgrdlux,kommmit,landwortbild,lunion,luxembourg1935,luxland,luxwort,luxzeit1844,obermosel,schmiede,tageblatt,volkfreu1869,waechtersauer,waeschfra
+
+all-lux-collection:=luxzeit1858,courriergdl,diekwochen,indeplux,onsjongen,armeteufel,actionfem,avenirgdl,buergerbeamten,deletz1893,demitock,dunioun,gazgrdlux,kommmit,landwortbild,lunion,luxembourg1935,luxland,luxwort,luxzeit1844,obermosel,schmiede,tageblatt,volkfreu1869,waechtersauer,waeschfra
+
+
+canonical_rebuilt-jsonl-bz2-wildcard := $(addprefix $(CANONICAL_DIR)/,$(foreach ca,$(collection_acronym),$(ca)/*.jsonl.bz2))
+canonical_rebuilt-jsonl-bz2-files := $(wildcard $(canonical_rebuilt-jsonl-bz2-wildcard))
+
+ifeq ($(DEBUG),1)
+$(info )
+$(info VARIABLE canonical_rebuilt-jsonl-bz2-files: )
+$(info $(canonical_rebuilt-jsonl-bz2-files))
+$(info )
+endif
+
+# stage 1
+language_identification-stage1-jsonl-bz2-files := $(subst $(CANONICAL_DIR),$(OUTPUT_DIR)-stage1,$(canonical_rebuilt-jsonl-bz2-files))
+$(file >language_identification-stage1-jsonl-bz2-files.txt,$(language_identification-stage1-jsonl-bz2-files))
+
+# stage 2
+language_identification-stage2-jsonl-bz2-files := $(subst $(CANONICAL_DIR),$(OUTPUT_DIR)-stage2,$(canonical_rebuilt-jsonl-bz2-files))
+$(file >language_identification-stage2-jsonl-bz2-files.txt,$(language_identification-stage2-jsonl-bz2-files))
+
+
+$(OUTPUT_DIR)-stage2/%.jsonl.bz2:$(OUTPUT_DIR)-stage1/%.jsonl.bz2
+	mkdir -p $(@D) \
+	&& python lib/language_identification_stage2.py -C $(patsubst %/,%.stats.json,$(subst -stage2,-stage1,$(dir $@))) -i $< -o $@.working.jsonl.bz2  &> >(tee $@.log >&2)  \
+	&& mv $@.working.jsonl.bz2 $@
+
+
+language_identification-stage2-jsonl-bz2-target : $(language_identification-stage2-jsonl-bz2-files)
+
+language_identification-jsonl-bz2-files := $(subst $(CANONICAL_DIR),$(OUTPUT_DIR),$(canonical_rebuilt-jsonl-bz2-files))
+
+
+ifeq ($(DEBUG),1)
+$(info )
+$(info VARIABLE language_identification-stage1-jsonl-bz2-files)
+$(info $(language_identification-stage1-jsonl-bz2-files))
+$(info )
+endif
+
+
+language-identification-collection-json-files:= $(addprefix $(OUTPUT_DIR)-stage1/,$(foreach ca,$(collection_acronym),$(ca).stats.json))
+
+ifeq ($(DEBUG),1)
+$(info )
+$(info VARIABLE language-identification-collection-json-files)
+$(info $(language-identification-collection-json-files))
+$(info )
+endif
+
+$(OUTPUT_DIR)-stage1/%.stats.json: $(OUTPUT_DIR)-stage1/%/
+	bzcat $(<)$**.jsonl.bz2| python lib/language_identification_collection_stats.py -C $* 2> $@.log > $@ || rm -f $@
+
+$(OUTPUT_DIR)-stage1.stats.json: $(language-identification-collection-json-files)
+	cat $+ > $@
+
+language-identification-collection-json-target: $(language-identification-collection-json-files) $(OUTPUT_DIR)-stage1.stats.json
+
+target: $(language_identification-stage1-jsonl-bz2-files)
+
+## sample lb (venv) siclemat@gimli:~/climpresso@clwork/language_identification
+# $ bzcat data/processed-canonical-data/language_identification/v01-stage1/luxzeit1858/luxzeit1858-185*.bz2 
+#  |jq -r "[.cid,.tp,.orig_lg,.len,.langdetect[0].lang,.langdetect[0].prob,.langid[0].lang,.langid[0].prob]|@tsv"
+
+# http://bigdatums.net/2016/11/16/filter-json-records-by-value-with-jq/
+sample-stage1-lb:
+	bzcat data/processed-canonical-data/language_identification/v01-stage1/luxzeit1858/luxzeit1858-185*.bz2 \
+	| jq  'select(.orig_lg == "lb" and .tp == "ar" and .len > 200 and .langid[0].lang != "lb")' | jq '[.cid,.tp,.orig_lg,.len,.langdetect[0].lang,.langdetect[0].prob,.langid[0].lang,.langid[0].prob]|@tsv"
+
+
+
+sample-stage1-lux2-lb-langid-inconsistency.json:
+	bzcat data/processed-canonical-data/language_identification/v01-stage1/{$(lux2-collection)}/*.bz2 \
+	| jq -c 'select(.orig_lg == "lb" and .tp == "ar" and .len > 200 and .langid[0].lang != "lb")' > $@
+
+sample-stage1-lux2-lb-langid-inconsistency.tsv: sample-stage1-lux2-lb-langid-inconsistency.json
+	python lib/get_evaluation_samples.py < $< -C data/canonical-rebuilt |grep -vFw -f data/lb-classified.txt| shuf --random-source=$< | sponge $@
+
+# non luxembourgisch articles
+sample-stage1-lux2-non-lb-langid-inconsistency.json:
+	bzcat data/processed-canonical-data/language_identification/v01-stage1/{$(lux2-collection)}/*.bz2 \
+	| jq -c 'select(.orig_lg != "lb" and .tp == "ar" and .len > 500 and .langid[0].lang != .orig_lg and .langdetect[0].lang != .orig_lg and (.langdetect[0].prob + .langid[0].prob)> 1.5)' > $@
+
+sample-stage1-lux2-non-lb-langid-inconsistency.tsv: sample-stage1-lux2-non-lb-langid-inconsistency.json
+	python lib/get_evaluation_samples.py < $< -C data/canonical-rebuilt |grep -vFw -f data/lb-classified.txt| shuf --random-source=$< | sponge $@
+
+
+sample-stage1-langdetect-inconsistency.tsv:
+	bzcat data/processed-canonical-data/language_identification/v01-stage1/{luxzeit1858,courriergdl,diekwochen,indeplux,onsjongen,armeteufel}/*.bz2|\
+	jq  'select(.orig_lg != null and .orig_lg != "lb" and .tp == "ar" and .orig_lg != .langdetect[0].lang  and .len > 500)' |\
+	jq -r '[.cid,.tp,.orig_lg,.len,.langdetect[0].lang,.langdetect[0].prob,.langid[0].lang,.langid[0].prob]|@tsv' > $@
+sample-stage1-langdetect-inconsistency.json:
+	bzcat data/processed-canonical-data/language_identification/v01-stage1/{luxzeit1858,courriergdl,diekwochen,indeplux,onsjongen,armeteufel}/*.bz2|\
+	jq  -c 'select(.orig_lg != null and .orig_lg != "lb" and .tp == "ar" and .orig_lg != .langdetect[0].lang  and .len > 500)' > $@
+sample-stage1-langdetect-inconsistency-lux2.json:
+	bzcat data/processed-canonical-data/language_identification/v01-stage1/{$(lux2-collection)}/*.bz2|\
+	jq  -c 'select(.orig_lg != null and .orig_lg != "lb" and .tp == "ar" and .orig_lg != .langdetect[0].lang  and .len > 500)' > $@
+sample-stage1-langdetect-inconsistency-lux2.json.tsv: sample-stage1-langdetect-inconsistency-lux2.json
+	shuf $< |head -n 1000 | python lib/get_evaluation_samples.py > $@  -C data/canonical-rebuilt
+# tm-fr-all-v1.0_tp62_fr https://dev.impresso-project.ch/app/#/topics/tm-fr-all-v1.0_tp97_fr
+
+sample-stage1-langdetect-inconsistency-nonlux.json:
+	bzcat data/processed-canonical-data/language_identification/v01-stage1/{$(non-lux-collection)}/*.bz2|\
+	jq  -c 'select(.orig_lg != null and .orig_lg != "lb" and .tp == "ar" and .orig_lg != .langdetect[0].lang  and .len > 1000)' > $@
+
+#$ shuf sample-stage1-langdetect-inconsistency.json |head -n 1000 | python lib/get_evaluation_samples.py > full-sample-stage1-langdetect-inconsistency.tsv  -C data/canonical-rebuilt
+
+
+orig_lg.stats.txt:
+	xargs -a language_identification-stage1-jsonl-bz2-files.txt bzcat  |jq -r '[.tp,.orig_lg]|@tsv'|sort|uniq -c|sort -rn > $@
+
+lg.stats.txt:
+	xargs -a language_identification-stage2-jsonl-bz2-files.txt bzcat  |jq -r '[.tp,.lg]|@tsv'|sort|uniq -c|sort -rn > $@
+
+bnl.stats.txt:
+	for l in $(bnl_collection_acronym) ; do \
+		bzcat /mnt/storage/scratch2/climpresso/s3data/canonical-rebuilt-release/$${l}/$${l}*.bz2 | jq   -r '[.tp,.id]|map(sub("-[0-9]{4}.*";""))|@tsv' ; \
+	done | sort |uniq -c > $@
+
+# (?P<NAME>pattern)
+# diekwochen-1842-04-09-a-i0010   ar      lb      2100    de      1       de      1
+
+full-samples1: sample1.tsv
+	perl -F"\t" -lane $$'$(PERL_SCRIPT1)' < $< 
+
+annotate: $(targets)
+
+$(OUTPUT_DIR)-stage1/%.jsonl.bz2: $(CANONICAL_DIR)/%.jsonl.bz2
+	mkdir -p $(@D) \
+	&& python lib/language_identification.py -f $(FASTTEXTMODEL) -E -i $< -o $@.working.jsonl.bz2  &> >(tee $@.log >&2)  \
+	&& mv $@.working.jsonl.bz2 $@
+	
+	
+check-problems:
+	for f in $$(ls -t $(output)/*/*.err ) ; do if [[ ! -a $${f%.err}.done ]] ; then printf "  # %s\n" "$$(ls -l $${f%.err}*)" ; echo "    " rm -f $${f%.err} $$f ; else : ; fi ; done
+
+remove-err-problems:
+	for f in $$(ls -t $(output)/*/*.err ) ; do if [[ ! -a $${f%.err} ]] ; then  echo rm $$f ; else : ; fi ; done
+
+check-done-archives:
+	for f in $$(ls -t $(output)/*/*.done | sort ) ; do  bzip2 -t $${f%.done} ||echo PROBLEM WITH $${f%.done} ; done
+
+stage1.stats.tsv:
+	for f in $$(ls data/processed-canonical-data/language_identification/v02-stage1/*/*.jsonl.bz2) ; do \
+		printf "%s\t%s\n" $$(basename $$f) $$(bzcat $$f|wc -l) ; \
+		done > $@
+stage2.stats.tsv:
+	for f in $$(ls data/processed-canonical-data/language_identification/v02-stage2/*/*.jsonl.bz2) ; do \
+		printf "%s\t%s\n" $$(basename $$f) $$(bzcat $$f|wc -l) ; \
+		done > $@
+
+
+clean-%:
+	echo rm $($*)
+
+
+
+##### Evaluation of inhouse language identification
+sample-stage1-lux2-langid-and-fasttext-vs-orig-$(VERSION).json:
+	bzcat data/processed-canonical-data/language_identification/$(VERSION)-stage1/{$(all-lux-collection)}/*.bz2 \
+	| jq -c 'select(.orig_lg != "lb" and .tp == "ar" and .len > 200 and .langid[0].lang == "lb" and .impresso_ft[0].lang == "lb")' > $@
+
+sample-stage1-lux2-langid-and-fasttext-vs-orig-$(VERSION).json.tsv: sample-stage1-lux2-langid-and-fasttext-vs-orig-$(VERSION).json
+	shuf $< |head -n 1000 | python lib/get_evaluation_samples.py > $@  -C data/canonical-rebuilt
+
+
+sample-stage1-lux2-langid-and-fasttext-vs-orig_lb-$(VERSION).json:
+	bzcat data/processed-canonical-data/language_identification/$(VERSION)-stage1/{$(all-lux-collection)}/*.bz2 \
+	| jq -c 'select(.orig_lg == "lb" and .tp == "ar" and .len > 200 and .langid[0].lang != "lb" and .impresso_ft[0].lang != "lb")' > $@
+
+
+sample-stage1-lux2-langid-and-fasttext-vs-orig_lb-$(VERSION).json.tsv: sample-stage1-lux2-langid-and-fasttext-vs-orig_lb-$(VERSION).json
+	shuf $< |head -n 5000 | python lib/get_evaluation_samples.py > $@  -C data/canonical-rebuilt
+
+sample-stage1-lux2-langid-and-fasttext-vs-orig_lb-$(VERSION).json.shuf.tsv: sample-stage1-lux2-langid-and-fasttext-vs-orig_lb-$(VERSION).json.tsv
+	grep -vFw -f data/lb-classified-v02.txt < $< |shuf --random-source=$< > $@
+
+
+# parallel -j50% --eta -S kitt,hal2,: --joblog $@.tmp $(MAKE) -C $(CWD) $(parses)/{2/.}.{1}.gz lang={1} input={2}
+#source $(CONDAROOT)/bin/activate && \
+#	parallel --nice 10 -j 20 -S $(machines)
+define PERL_SCRIPT1
+$$F[0] =~ m{^(?P<COLLECTION>.+)-(?P<YEAR>.+)-(?P<MONTH>.+)-(?P<DAY>.+)-(?P<EDITION>.+)-i(?P<CONTENTITEM>.+)$$}; \
+print "bzcat $(CANONICAL_DIR)/$$+{COLLECTION}/$$+{COLLECTION}-$$+{YEAR}.jsonl.bz2 | \
+jq \x27 select(.cid==\x22$$F[0]\x22)| [.cid,.tp,.orig_lg,.len,.langdetect[0].lang,.langdetect[0].prob,.langid[0].lang,.langid[0].prob]|@tsv";
+endef

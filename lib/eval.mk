@@ -1,0 +1,15 @@
+# Makefile for performing ablation experiments
+
+# stage 1
+BOOST_FACTOR__SET ?= 1.5 2.0
+STAGE1B_MINIMAL_TEXT_LENGTH__SET ?= 200
+MINIMAL_LID_PROBABILITY__SET ?= 0.25 0.5
+MINIMAL_VOTE_SCORE__SET ?= 1 1.5
+
+# stage 2
+STAGE2_MINIMAL_TEXT_LENGTH__SET ?= 50
+WEIGHT_LB_IMPRESSO__SET ?= 3
+MINIMAL_VOTING_SCORE__SET ?= 0.5 1.0
+
+
+include Makefile
