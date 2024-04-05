@@ -46,10 +46,10 @@ underlying the Impresso interface and the downstream processing.
 
 ## Prerequisites
 The build process has been tested on modern Linux and macOS systems and requires
-Python 3.8. Under Debian, make sure to have the following packages installed:
+Python 3.11. Under Debian, make sure to have the following packages installed:
 
 ```sh
-$ # install python3.8 according to your OS
+$ # install python3.11 according to your OS
 $ sudo apt install git git-lfs make moreutils  # needed for building
 $ sudo apt rclone  # needed for uploading to s3
 $ sudo apt jq  # needed for computing statistics
@@ -60,9 +60,9 @@ This repository uses `pipenv`.
 ```sh
 $ git clone https://github.com/impresso/impresso-language-identification.git
 $ cd impresso-language-identification
-$ python3.8 -mpip install pipenv
-$ python3.8 -mpipenv install
-$ python3.8 -mpipenv shell
+$ python3.11 -mpip install pipenv
+$ python3.11 -mpipenv install
+$ python3.11 -mpipenv shell
 ```
 
 For processing, you have to provide a symbolic link called `rebuilt-data` inside
@@ -221,4 +221,3 @@ make impresso-lid -j N
 Because the step 1a is taking a lot of time for millions of content items, it is
 recommended to build in parallel on several machines that can access the same
 storage.
-
