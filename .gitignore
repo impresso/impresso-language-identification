@@ -1,2 +1,6 @@
-/build/
-/.venv/
+build/
+.venv/
+test1/
+test?/
+testbuild/
+venv/

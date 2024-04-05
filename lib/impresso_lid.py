@@ -8,7 +8,7 @@ and the other with global statistics.
 
 """
 
-__version__ = "2020.12.21"
+__version__ = "2024.04.04"
 
 import copy
 import datetime
@@ -274,11 +274,9 @@ class ImpressoLanguageIdentifier(object):
             return self.cleanup_attrs(decided_content_item)
 
         trust_orig_lg = False
-        if (
-            overall_orig_lg_support := self.collection_stats.get(
-                "overall_orig_lg_support"
-            )
-        ) :
+        if overall_orig_lg_support := self.collection_stats.get(
+            "overall_orig_lg_support"
+        ):
             trust_orig_lg = overall_orig_lg_support > self.threshold_confidence_orig_lg
 
         dominant_lg = self.collection_stats["dominant_language"]
@@ -319,7 +317,8 @@ class ImpressoLanguageIdentifier(object):
             )  # min is just used to select the only element
             if other_lg not in {"de", "fr", "en", "it"} and (
                 other_lg in self.collection_stats["lid_distributions"]["ensemble"]
-                and content_item["len"] * content_item["alphabetical_ratio"] >= self.minimal_text_length
+                and content_item["len"] * content_item["alphabetical_ratio"]
+                >= self.minimal_text_length
             ):
                 decided_content_item["lg"] = other_lg
                 decided_content_item["lg_decision"] = "all-but-impresso_ft"
