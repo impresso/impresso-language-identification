@@ -93,7 +93,7 @@ MINIMAL_VOTE_SCORE ?= 1.5
 EVALUATION_OUTPUT_FORMAT ?= json
 
 # S3 bucket path (without "/" suffix)
-S3_BUCKET_LANGIDENT_PATH ?= /processed-canonical-data/langident
+S3_BUCKET_LANGIDENT_PATH ?= /42-processed-data-final/langident
 
 
 stage2-dir := stage2
