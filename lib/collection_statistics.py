@@ -341,7 +341,7 @@ class AggregatorLID:
             ci_len = ci.get("len", 0)
             self.content_length_stats[ci_len] += 1
             if (
-                    (a_ratio := ci.get("alphabetical_ratio", 0)) < 0.5
+                (a_ratio := ci.get("alphabetical_ratio", 0)) < 0.5
             ) or ci_len * a_ratio < self.minimal_text_length:
                 log.debug(
                     f"Ignore short content item: {ci['id']}\t(length: {ci.get('len', 0)})"

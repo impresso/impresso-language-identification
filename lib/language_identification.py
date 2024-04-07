@@ -43,7 +43,7 @@ def alphabetical_ratio(text: str) -> Optional[float]:
 
 
 def average_distribution(
-    listoflist: List[List], round_ndigits: int = 9
+        listoflist: List[List], round_ndigits: int = 9
 ) -> List[Dict[str, Union[str, float]]]:
     """Return dictionary of averaged probabilities per language.
 
@@ -68,19 +68,21 @@ def average_distribution(
     ]
 
     log.debug(
-        f"DEBUG-LANGDETECT-DIVERSITY Length: {len(listoflist)} Predictions: {listoflist}"
+        "DEBUG-LANGDETECT-DIVERSITY Length: %s Predictions: %s",
+        len(listoflist),
+        listoflist,
     )
 
     return result
 
 
 def avg_langdetect_lid(
-    text: str,
-    n: int,
-    threshold: float = 0.95,
-    seed: int = 42,
-    default_languages: Set[str] = {"de", "fr"},
-    round_ndigits: int = 9,
+        text: str,
+        n: int,
+        threshold: float = 0.95,
+        seed: int = 42,
+        default_languages: Tuple[str] = ("de", "fr"),
+        round_ndigits: int = 9,
 ) -> List[Dict[str, Union[str, float]]]:
     """Compute averaged lid score from n samples using Langdetect.
 
@@ -112,13 +114,13 @@ def avg_langdetect_lid(
 
 
 def fasttext_lid(
-    text: str, ft_model, round_ndigits: int = 9
+        text: str, ft_model, round_ndigits: int = 9
 ) -> List[Dict[str, Union[str, float]]]:
     """
     Return results of a fasttext model.
 
-    The only normalization is mapping digits to 0. The internal function predict of fasttext returns a pair
-    of tuples
+    The only normalization is mapping digits to 0. The internal function predict of
+    fasttext returns a pair of tuples
 
     In [16]: m.predict(''' l'eût cru, le rêve de M. Mitterand, c'est d'e''',k=3)
     Out[16]: (('__label__fr', '__label__lb', '__label__de'),
@@ -158,9 +160,9 @@ class LanguageIdentifier(object):
         Therefore, orig_lg is not seen as LID system as it "predicts" only a single
         language if any.
 
-    :attr type results: Description of parameter `results`.
+    :attr type results: Description of parameter `results`
 
-    :param int round_ndigits: Number of decimal places in the output.
+    :param int round_ndigits: Number of decimal places in the output
 
     :param str git_describe: Output of git describe to use as version if not empty
         string
@@ -171,15 +173,15 @@ class LanguageIdentifier(object):
     """
 
     def __init__(
-        self,
-        infile: str,
-        outfile: str,
-        impresso_ft: str,
-        wp_ft: str,
-        minimal_text_length: int,
-        lids: list,
-        round_ndigits: int,
-        git_describe: str,
+            self,
+            infile: str,
+            outfile: str,
+            impresso_ft: str,
+            wp_ft: str,
+            minimal_text_length: int,
+            lids: list,
+            round_ndigits: int,
+            git_describe: str,
     ):
 
         self.infile: str = infile
@@ -197,19 +199,18 @@ class LanguageIdentifier(object):
         self.results = []
 
     def run(self):
+        """Run the language identification process."""
         log.info(
-            f"Language identification started with config: {json.dumps(vars(self),default=lambda x: list(x) if isinstance(x,set) else x)}"
+            "Language identification started with config: "
+            f"{json.dumps(vars(self), default=lambda x: list(x) if isinstance(x, set) else x)}"
         )
         self.language_identification()
         self.write_output()
-        log.info(f"Language identification finished.")
+        log.info("Language identification finished.")
 
     def language_identification(self) -> None:
-        """Run multiple language identifications with the models provided and update results
-
-        :return: None.
-        :rtype: None
-
+        """Run multiple language identifications with the models provided and update
+        results
         """
 
         # initialize with langid lid classifier
@@ -251,9 +252,9 @@ class LanguageIdentifier(object):
 
                 # perform lid if text of content item is available and has a minimal length
                 if (
-                    "ft" in j
-                    and isinstance(j["ft"], str)
-                    and len(j["ft"].strip()) >= self.minimal_text_length
+                        "ft" in j
+                        and isinstance(j["ft"], str)
+                        and len(j["ft"].strip()) >= self.minimal_text_length
                 ):
                     jinfo["alphabetical_ratio"] = round(
                         alphabetical_ratio(j["ft"]), self.round_ndigits
@@ -342,8 +343,15 @@ class LanguageIdentifier(object):
 if __name__ == "__main__":
     import argparse
 
-    DESCRIPTION = "Compute language identification classes and their probabilities with different LID systems."
-    EPILOG = "All tools use two-letter ISO 639-1 codes, except wp_ft which recognizes additional languages identifiable only by 3 letter codes."
+    DESCRIPTION = (
+        "Compute language identification classes and their probabilities "
+        "with different LID systems."
+    )
+
+    EPILOG = (
+        "All tools use two-letter ISO 639-1 codes, except wp_ft which "
+        "recognizes additional languages identifiable only by 3 letter codes."
+    )
     parser = argparse.ArgumentParser(description=DESCRIPTION, epilog=EPILOG)
     parser.add_argument(
         "-l", "--logfile", dest="logfile", help="write log to FILE", metavar="FILE"
