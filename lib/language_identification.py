@@ -1,11 +1,10 @@
-#!/usr/bin/python3
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 """
 Compute language identification classes and their probabilities with different LID systems.
 """
 
-__version__ = "2020.12.21"
+__version__ = "2024.04.07"
 
 import datetime
 import json
@@ -22,6 +21,7 @@ from langid import langid
 from smart_open import open
 
 log = logging.getLogger(__name__)
+
 
 def alphabetical_ratio(text: str) -> Optional[float]:
     """Return the percentage of alphabetic characters of a text
@@ -75,18 +75,24 @@ def average_distribution(
 
 
 def avg_langdetect_lid(
-        text: str, n: int, threshold: float = 0.95, seed: int = 42, default_languages: Set[str] = {"de", "fr"},
-        round_ndigits: int = 9
+    text: str,
+    n: int,
+    threshold: float = 0.95,
+    seed: int = 42,
+    default_languages: Set[str] = {"de", "fr"},
+    round_ndigits: int = 9,
 ) -> List[Dict[str, Union[str, float]]]:
     """Compute averaged lid score from n samples using Langdetect.
 
-    For efficiency, drawing stops if the top-most language has a higher probability than threshold
+    For efficiency, drawing stops if the top-most language has a higher probability than
+    threshold
 
     :param int round_ndigits: Number of decimal places for probabilities.
     :param str text: Text to classify.
     :param int n: Number of samples.
     :param int seed: Initial random seed for langdetect
-    :param Set[str] default_languages: Set of language where early stopping is allowed for highly probably languages
+    :param Set[str] default_languages: Set of language where early stopping is allowed
+        for highly probably languages
     :param float threshold: Threshold for early-stopping of sampling.
     :return: Dictionary with the averaged probabilities per language
     :rtype: List[Dict[str, float]]
@@ -138,15 +144,29 @@ class LanguageIdentifier(object):
     """Predict languages for content items.
 
     :param str infile: Path to input file in impresso bz2 rebuilt format.
+
     :param str outfile: JSON file with language predictions per content item.
+
     :param str impresso_ft: Path to binary fasttext LID impresso model.
+
     :param str wp_ft: Path to binary fasttext LID Wikipedia model.
-    :param int minimal_text_length: threshold for text length in characters to apply automatic language identification.
+
+    :param int minimal_text_length: threshold for text length in characters to apply
+        automatic language identification.
+
     :param Set[str] lids: Set of LID systems predict to language/probability pairs.
-        Therefore, orig_lg is not seen as LID system as it "predicts" only a single language if any.    :attr type results: Description of parameter `results`.
+        Therefore, orig_lg is not seen as LID system as it "predicts" only a single
+        language if any.
+
+    :attr type results: Description of parameter `results`.
+
     :param int round_ndigits: Number of decimal places in the output.
-    :param str git_describe: Output of git describe to use as version if not empty string
-    :attr list results: Collection of content items with the language prediction of various systems.
+
+    :param str git_describe: Output of git describe to use as version if not empty
+        string
+
+    :attr list results: Collection of content items with the language prediction of
+        various systems.
 
     """
 
@@ -401,7 +421,7 @@ if __name__ == "__main__":
         level=log_levels[arguments.verbose],
         format="%(asctime)-15s %(levelname)s: %(message)s",
     )
-    log.info(f'{arguments}')
+    log.info(f"{arguments}")
     language_identifier_args = {
         "infile",
         "outfile",
