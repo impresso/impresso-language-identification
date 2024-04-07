@@ -259,7 +259,7 @@ impresso-lid-release-target : \
 $(release-dir)/%.jsonl.bz2: $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2
 	mkdir -p $(@D) \
 	&& python impresso-schemas/scripts/jsonlschema.py  \
-		impresso-schemas/json/language_identification/language_identification.schema.json \
+		--schema impresso-schemas/json/language_identification/language_identification.schema.json \
 		--input-files $< \
 		--output-file $@
 
@@ -274,6 +274,17 @@ impresso-lid-upload-release-to-s3: impresso-lid-release-target
 
 ########################################################################################################################
 # Produce statistics
+
+impresso-lid-stage2-diagnostics-files-manifest-target: \
+  $(LID_BUILD_DIR)/statistics.d \
+  $(LID_BUILD_DIR)/statistics.d/impresso-lid-stage2-diagnostics-files-manifest.txt
+
+$(LID_BUILD_DIR)/statistics.d/impresso-lid-stage2-diagnostics-files-manifest.txt: $(impresso-lid-stage2-diagnostics-files)
+	mkdir -p $(@D) && $(file > $@,$+)
+
+
+%.d:
+	mkdir -p $@
 
 #: Compute several statistics on the output of impresso LID
 impresso-lid-statistics: \

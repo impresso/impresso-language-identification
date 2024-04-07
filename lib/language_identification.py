@@ -1,11 +1,10 @@
-#!/usr/bin/python3
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 """
 Compute language identification classes and their probabilities with different LID systems.
 """
 
-__version__ = "2020.12.21"
+__version__ = "2024.04.07"
 
 import datetime
 import json
@@ -22,6 +21,7 @@ from langid import langid
 from smart_open import open
 
 log = logging.getLogger(__name__)
+
 
 def alphabetical_ratio(text: str) -> Optional[float]:
     """Return the percentage of alphabetic characters of a text
@@ -43,7 +43,7 @@ def alphabetical_ratio(text: str) -> Optional[float]:
 
 
 def average_distribution(
-    listoflist: List[List], round_ndigits: int = 9
+        listoflist: List[List], round_ndigits: int = 9
 ) -> List[Dict[str, Union[str, float]]]:
     """Return dictionary of averaged probabilities per language.
 
@@ -68,25 +68,33 @@ def average_distribution(
     ]
 
     log.debug(
-        f"DEBUG-LANGDETECT-DIVERSITY Length: {len(listoflist)} Predictions: {listoflist}"
+        "DEBUG-LANGDETECT-DIVERSITY Length: %s Predictions: %s",
+        len(listoflist),
+        listoflist,
     )
 
     return result
 
 
 def avg_langdetect_lid(
-        text: str, n: int, threshold: float = 0.95, seed: int = 42, default_languages: Set[str] = {"de", "fr"},
-        round_ndigits: int = 9
+        text: str,
+        n: int,
+        threshold: float = 0.95,
+        seed: int = 42,
+        default_languages: Tuple[str] = ("de", "fr"),
+        round_ndigits: int = 9,
 ) -> List[Dict[str, Union[str, float]]]:
     """Compute averaged lid score from n samples using Langdetect.
 
-    For efficiency, drawing stops if the top-most language has a higher probability than threshold
+    For efficiency, drawing stops if the top-most language has a higher probability than
+    threshold
 
     :param int round_ndigits: Number of decimal places for probabilities.
     :param str text: Text to classify.
     :param int n: Number of samples.
     :param int seed: Initial random seed for langdetect
-    :param Set[str] default_languages: Set of language where early stopping is allowed for highly probably languages
+    :param Set[str] default_languages: Set of language where early stopping is allowed
+        for highly probably languages
     :param float threshold: Threshold for early-stopping of sampling.
     :return: Dictionary with the averaged probabilities per language
     :rtype: List[Dict[str, float]]
@@ -106,13 +114,13 @@ def avg_langdetect_lid(
 
 
 def fasttext_lid(
-    text: str, ft_model, round_ndigits: int = 9
+        text: str, ft_model, round_ndigits: int = 9
 ) -> List[Dict[str, Union[str, float]]]:
     """
     Return results of a fasttext model.
 
-    The only normalization is mapping digits to 0. The internal function predict of fasttext returns a pair
-    of tuples
+    The only normalization is mapping digits to 0. The internal function predict of
+    fasttext returns a pair of tuples
 
     In [16]: m.predict(''' l'eût cru, le rêve de M. Mitterand, c'est d'e''',k=3)
     Out[16]: (('__label__fr', '__label__lb', '__label__de'),
@@ -138,28 +146,42 @@ class LanguageIdentifier(object):
     """Predict languages for content items.
 
     :param str infile: Path to input file in impresso bz2 rebuilt format.
+
     :param str outfile: JSON file with language predictions per content item.
+
     :param str impresso_ft: Path to binary fasttext LID impresso model.
+
     :param str wp_ft: Path to binary fasttext LID Wikipedia model.
-    :param int minimal_text_length: threshold for text length in characters to apply automatic language identification.
+
+    :param int minimal_text_length: threshold for text length in characters to apply
+        automatic language identification.
+
     :param Set[str] lids: Set of LID systems predict to language/probability pairs.
-        Therefore, orig_lg is not seen as LID system as it "predicts" only a single language if any.    :attr type results: Description of parameter `results`.
-    :param int round_ndigits: Number of decimal places in the output.
-    :param str git_describe: Output of git describe to use as version if not empty string
-    :attr list results: Collection of content items with the language prediction of various systems.
+        Therefore, orig_lg is not seen as LID system as it "predicts" only a single
+        language if any.
+
+    :attr type results: Description of parameter `results`
+
+    :param int round_ndigits: Number of decimal places in the output
+
+    :param str git_describe: Output of git describe to use as version if not empty
+        string
+
+    :attr list results: Collection of content items with the language prediction of
+        various systems.
 
     """
 
     def __init__(
-        self,
-        infile: str,
-        outfile: str,
-        impresso_ft: str,
-        wp_ft: str,
-        minimal_text_length: int,
-        lids: list,
-        round_ndigits: int,
-        git_describe: str,
+            self,
+            infile: str,
+            outfile: str,
+            impresso_ft: str,
+            wp_ft: str,
+            minimal_text_length: int,
+            lids: list,
+            round_ndigits: int,
+            git_describe: str,
     ):
 
         self.infile: str = infile
@@ -177,19 +199,18 @@ class LanguageIdentifier(object):
         self.results = []
 
     def run(self):
+        """Run the language identification process."""
         log.info(
-            f"Language identification started with config: {json.dumps(vars(self),default=lambda x: list(x) if isinstance(x,set) else x)}"
+            "Language identification started with config: "
+            f"{json.dumps(vars(self), default=lambda x: list(x) if isinstance(x, set) else x)}"
         )
         self.language_identification()
         self.write_output()
-        log.info(f"Language identification finished.")
+        log.info("Language identification finished.")
 
     def language_identification(self) -> None:
-        """Run multiple language identifications with the models provided and update results
-
-        :return: None.
-        :rtype: None
-
+        """Run multiple language identifications with the models provided and update
+        results
         """
 
         # initialize with langid lid classifier
@@ -231,9 +252,9 @@ class LanguageIdentifier(object):
 
                 # perform lid if text of content item is available and has a minimal length
                 if (
-                    "ft" in j
-                    and isinstance(j["ft"], str)
-                    and len(j["ft"].strip()) >= self.minimal_text_length
+                        "ft" in j
+                        and isinstance(j["ft"], str)
+                        and len(j["ft"].strip()) >= self.minimal_text_length
                 ):
                     jinfo["alphabetical_ratio"] = round(
                         alphabetical_ratio(j["ft"]), self.round_ndigits
@@ -322,8 +343,15 @@ class LanguageIdentifier(object):
 if __name__ == "__main__":
     import argparse
 
-    DESCRIPTION = "Compute language identification classes and their probabilities with different LID systems."
-    EPILOG = "All tools use two-letter ISO 639-1 codes, except wp_ft which recognizes additional languages identifiable only by 3 letter codes."
+    DESCRIPTION = (
+        "Compute language identification classes and their probabilities "
+        "with different LID systems."
+    )
+
+    EPILOG = (
+        "All tools use two-letter ISO 639-1 codes, except wp_ft which "
+        "recognizes additional languages identifiable only by 3 letter codes."
+    )
     parser = argparse.ArgumentParser(description=DESCRIPTION, epilog=EPILOG)
     parser.add_argument(
         "-l", "--logfile", dest="logfile", help="write log to FILE", metavar="FILE"
@@ -401,7 +429,7 @@ if __name__ == "__main__":
         level=log_levels[arguments.verbose],
         format="%(asctime)-15s %(levelname)s: %(message)s",
     )
-    log.info(f'{arguments}')
+    log.info(f"{arguments}")
     language_identifier_args = {
         "infile",
         "outfile",
