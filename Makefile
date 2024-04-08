@@ -262,6 +262,9 @@ $(release-dir)/%.jsonl.bz2: $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2
 		--schema impresso-schemas/json/language_identification/language_identification.schema.json \
 		--input-files $< \
 		--output-file $@
+	# integrity check
+	bzip2 -t $@ || { echo "Error: Integrity check failed for $@. Cleaning up $@ now." ; rm -vf $@ ; exit 1 ; }
+
 
 $(release-dir)/%.diagnostics.json: $(LID_BUILD_DIR)/$(stage2-dir)/%.diagnostics.json
 	cp -ua $< $@
