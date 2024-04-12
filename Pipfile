@@ -11,7 +11,7 @@ jsonlines = "*"
 langid = "*"
 langdetect = "*"
 fasttext = "*"
-smart-open = "*"
+smart-open= {extras = ["s3","http"], version = "==6.4"}
 jsonschema = "*"
 
 [requires]
