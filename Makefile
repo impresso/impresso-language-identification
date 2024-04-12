@@ -231,6 +231,7 @@ $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2 $(LID_BUILD_DIR)/$(stage2-dir)/%.diag
 	 --minimal-text-length $(STAGE2_MINIMAL_TEXT_LENGTH) \
 	 --collection-stats-filename $(patsubst %/,%.stats.json,$(subst /$(stage2-dir),/stage1,$(dir $@))) \
 	 --git-describe $$(git describe) \
+	--validate \
 	 --diagnostics-json $(@:jsonl.bz2=)diagnostics.json \
 	 --infile $< \
 	 --outfile $@.working.jsonl.bz2 \
