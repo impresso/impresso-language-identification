@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
 """
-Compute language identification classes and their probabilities with different LID systems.
+Compute language identification classes and their probabilities with different LID
+systems
 """
 
-__version__ = "2024.04.07"
+__version__ = "2024.04.12"
 
 import datetime
 import json
@@ -12,13 +13,13 @@ import logging
 import re
 import sys
 from collections import Counter
-from typing import Dict, List, Optional, Iterable, Set, Union
+from typing import Dict, List, Optional, Iterable, Set, Union, Tuple
 
 import fasttext
 import langdetect
 from langdetect.lang_detect_exception import LangDetectException
 from langid import langid
-from smart_open import open
+import smart_open
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ def alphabetical_ratio(text: str) -> Optional[float]:
 
 
 def average_distribution(
-        listoflist: List[List], round_ndigits: int = 9
+    listoflist: List[List], round_ndigits: int = 9
 ) -> List[Dict[str, Union[str, float]]]:
     """Return dictionary of averaged probabilities per language.
 
@@ -77,12 +78,12 @@ def average_distribution(
 
 
 def avg_langdetect_lid(
-        text: str,
-        n: int,
-        threshold: float = 0.95,
-        seed: int = 42,
-        default_languages: Tuple[str] = ("de", "fr"),
-        round_ndigits: int = 9,
+    text: str,
+    n: int,
+    threshold: float = 0.95,
+    seed: int = 42,
+    default_languages: Tuple[str] = ("de", "fr"),
+    round_ndigits: int = 9,
 ) -> List[Dict[str, Union[str, float]]]:
     """Compute averaged lid score from n samples using Langdetect.
 
@@ -114,7 +115,7 @@ def avg_langdetect_lid(
 
 
 def fasttext_lid(
-        text: str, ft_model, round_ndigits: int = 9
+    text: str, ft_model, round_ndigits: int = 9
 ) -> List[Dict[str, Union[str, float]]]:
     """
     Return results of a fasttext model.
@@ -130,7 +131,7 @@ def fasttext_lid(
     # ignore digits
     text = re.sub(r"\d+", "", text)
 
-    labels, probs = ft_model.predict(text, k=3, threshold=0.005)
+    labels, probs = ft_model.predict(text, k=3, threshold=0.05)
     result = [
         {
             "lang": lang.replace("__label__", ""),
@@ -173,15 +174,15 @@ class LanguageIdentifier(object):
     """
 
     def __init__(
-            self,
-            infile: str,
-            outfile: str,
-            impresso_ft: str,
-            wp_ft: str,
-            minimal_text_length: int,
-            lids: list,
-            round_ndigits: int,
-            git_describe: str,
+        self,
+        infile: str,
+        outfile: str,
+        impresso_ft: str,
+        wp_ft: str,
+        minimal_text_length: int,
+        lids: list,
+        round_ndigits: int,
+        git_describe: str,
     ):
 
         self.infile: str = infile
@@ -252,9 +253,9 @@ class LanguageIdentifier(object):
 
                 # perform lid if text of content item is available and has a minimal length
                 if (
-                        "ft" in j
-                        and isinstance(j["ft"], str)
-                        and len(j["ft"].strip()) >= self.minimal_text_length
+                    "ft" in j
+                    and isinstance(j["ft"], str)
+                    and len(j["ft"].strip()) >= self.minimal_text_length
                 ):
                     jinfo["alphabetical_ratio"] = round(
                         alphabetical_ratio(j["ft"]), self.round_ndigits
@@ -323,7 +324,7 @@ class LanguageIdentifier(object):
         Write results to jsonline output file.
         """
 
-        with open(self.outfile, mode="w", encoding="utf-8") as f_out:
+        with smart_open.open(self.outfile, mode="w", encoding="utf-8") as f_out:
             for r in self.results:
                 print(
                     json.dumps(r, ensure_ascii=False, separators=(",", ":")), file=f_out
@@ -334,7 +335,7 @@ class LanguageIdentifier(object):
         Yield each contentitem.
         """
 
-        with open(self.infile, encoding="utf-8") as reader:
+        with smart_open.open(self.infile, encoding="utf-8") as reader:
             for line in reader:
                 if line.strip():
                     yield json.loads(line)
@@ -427,7 +428,7 @@ if __name__ == "__main__":
 
     logging.basicConfig(
         level=log_levels[arguments.verbose],
-        format="%(asctime)-15s %(levelname)s: %(message)s",
+        format="%(asctime)-15s %(filename)s:%(lineno)d %(levelname)s: %(message)s",
     )
     log.info(f"{arguments}")
     language_identifier_args = {

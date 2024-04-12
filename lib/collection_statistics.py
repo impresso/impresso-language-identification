@@ -364,7 +364,7 @@ class AggregatorLID:
                 log.debug(f"Decision taken: lang={lang} score={score}")
                 if len(decision) > 1 and decision.most_common(2)[1][1] == score:
                     log.warning(
-                        f"Ignore decision as there is a tie between the two top predicted languages {decision}"
+                        f"Ignore decision for {ci['id']} as there is a tie between the two top predicted languages {decision}"
                     )
                     lang = None
 
@@ -550,7 +550,7 @@ if __name__ == "__main__":
     ]
     logging.basicConfig(
         level=log_levels[arguments.verbose],
-        format="%(asctime)-15s %(levelname)s: %(message)s",
+        format="%(asctime)-15s %(filename)s:%(lineno)d %(levelname)s: %(message)s",
     )
     log.info(f"{arguments}")
     aggregator_lid_args = {
