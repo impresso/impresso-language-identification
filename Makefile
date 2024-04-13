@@ -17,6 +17,29 @@ export SHELLOPTS := errexit:pipefail
 # See README.md for details
 -include Makefile.local.mk
 
+
+# Help target for displaying usage information
+help:
+	@echo "Usage: make <target>"
+	@echo "Targets:"
+	@echo "  impresso-lid                           # Run the full impresso Language Identification (LID) pipeline."
+	@echo "  impresso-lid-stage1a-target            # Process initial language identification for each content item."
+	@echo "  impresso-lid-stage1b-target            # Collect and summarize statistics from Stage 1a."
+	@echo "  impresso-lid-stage2-target             # Finalize language decisions and generate diagnostics."
+	@echo "  impresso-lid-upload-release-to-s3      # Upload the processed data to an AWS S3 bucket."
+	@echo "  impresso-lid-statistics                # Generate statistics from the processed data."
+	@echo "  impresso-lid-eval                      # Evaluate the LID results against a gold standard."
+	@echo "  update-requirements                    # Update the Python dependencies file."
+	@echo "  help                                   # Show this help message"
+
+# Default goal set to the help target
+.DEFAULT_GOAL := help
+
+# Add the help target to the list of phony targets to ensure it runs as needed without prerequisites
+.PHONY: help $(PHONY_TARGETS)
+
+
+
 # generally export all variables to sub-make calls (needed in this Makefile)
 # The targets of stage 1a need the targets of stage 1b to exist
 #export
