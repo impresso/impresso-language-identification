@@ -1,24 +1,27 @@
-#!/usr/bin/python3
-# -*- coding: utf-8 -*-
-"""
-Classify language of impresso content item given all collected evidence from various sources
-
-This script takes two JSON files as input, one with information per content item
-and the other with global statistics.
+#!/usr/bin/env python3
 
 """
+Determine the language of a impresso content item given all collected evidence from
+various systems
 
-__version__ = "2024.04.04"
+This script takes two intermediate JSON files as input, one with information per content
+item and the other with global statistics.
+
+"""
+
+__version__ = "2024.04.12"
 
 import copy
 import datetime
 import json
 import logging
+import sys
 from collections import Counter, defaultdict
-from typing import Iterable, Optional, Set, List, DefaultDict
+from typing import DefaultDict, Iterable, List, Optional, Set
 
 import jsonlines
-from smart_open import open
+import jsonschema
+import smart_open
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +35,7 @@ def read_json(path: str) -> dict:
 
     """
 
-    with open(path, "r", encoding="utf-8") as f:
+    with smart_open.open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -41,23 +44,36 @@ class ImpressoLanguageIdentifier(object):
 
     :param str infile: JSON file with language predictions per content item.
     :param str outfile: Path to folder where processed JSON files should be saved.
-    :param str collection_stats_filename: JSON file with aggregated statistics per collection. Read in into the attribute collection_stats
+    :param str collection_stats_filename: JSON file with aggregated statistics per
+        collection. Read in into the attribute collection_stats
     :param Set[str] lids: Set of LID systems predict to language/probability pairs.
-        Therefore, orig_lg is not seen as LID system as it "predicts" only a single language if any.
-    :param float weight_lb_impresso_ft: voting weight for impresso_ft predicting Luxembourgish.
-    :param float minimal_lid_probability: Minimal probability for a LID decision to be considered a vote.
-    :param int minimal_text_length: threshold for text length in characters to apply automatic language identification.
-    :param float minimal_voting_score: minimal vote score for voting decision to be accepted
-    :param float threshold_confidence_orig_lg: Ignore original language information when below this confidence threshold.
-    :param Optional[Set[str]] admissible_languages: Limit languages in the ensemble decisions.
-        If None, no restrictions are applied.
+        Therefore, orig_lg is not seen as LID system as it "predicts" only a single
+        language if any.
+    :param float weight_lb_impresso_ft: voting weight for impresso_ft predicting
+        Luxembourgish.
+    :param float minimal_lid_probability: Minimal probability for a LID decision to be
+        considered a vote.
+    :param int minimal_text_length: threshold for text length in characters to apply
+        automatic language identification.
+    :param float minimal_voting_score: minimal vote score for voting decision to be
+        accepted
+    :param float threshold_confidence_orig_lg: Ignore original language information when
+        below this confidence threshold.
+    :param Optional[Set[str]] admissible_languages: Limit languages in the ensemble
+        decisions. If None, no restrictions are applied.
     :param Optional[str] diagnostics_json: Filename for diagnostics
-    :param str git_describe: Output of git describe to use as version if not empty string
+    :param bool validate: Validate final lang identification JSON against schema
+    :param str git_describe: Output of git describe to use as version if not empty
+        string
 
-    :attr list attrs_per_content_item: Defines order of attributes and list of attributes to copy over from stage 1 content items' JSON and nullable attributes from stage 2
-    :attr DefaultDict[Counter] stats: Distribution for any JSON property of interest (given as key)
+    :attr list attrs_per_content_item: Defines order of attributes and list of
+        attributes to copy over from stage 1 content items' JSON and nullable attributes
+        from stage 2
+    :attr DefaultDict[Counter] stats: Distribution for any JSON property of interest
+        (given as key)
     :attr list results: Collection of content items with their identified language.
-
+    :attr dict schema: JSON schema for the output JSON
+    :attr method schema_validator: JSON schema validator
     """
 
     def __init__(
@@ -73,6 +89,7 @@ class ImpressoLanguageIdentifier(object):
         threshold_confidence_orig_lg: float,
         admissible_languages: Optional[Set[str]],
         diagnostics_json: Optional[str],
+        validate: bool,
         git_describe: str,
     ):
 
@@ -119,10 +136,8 @@ class ImpressoLanguageIdentifier(object):
         self.outfile: str = outfile
 
         if len(self.lids) < 1:
-            log.error(
-                "No LID systems specified. At least one language identificator is needed."
-            )
-            exit(2)
+            log.error("No LID specified. At least one language identificator  needed.")
+            sys.exit(2)
 
         self.weight_lb_impresso_ft: float = weight_lb_impresso_ft
 
@@ -135,10 +150,16 @@ class ImpressoLanguageIdentifier(object):
         self.minimal_text_length: float = minimal_text_length
         self.minimal_voting_score: float = minimal_voting_score
 
+        self.schema: Optional[dict] = None
+        self.schema_validator: Optional[jsonschema.validators.Draft6Validator] = None
         self.stats: DefaultDict[str, Counter] = defaultdict(Counter)
         self.stats_keys: List[str] = ["lg", "orig_lg", "tp", "lg_decision"]
         self.collection_stats: dict = read_json(collection_stats_filename)
         self.results: List[dict] = []
+
+        self.validate: bool = validate
+        if self.validate:
+            self.load_schema()
 
     def run(self):
         """Run the application"""
@@ -148,23 +169,56 @@ class ImpressoLanguageIdentifier(object):
         self.update_stats()
         self.write_diagnostics()
 
+    def load_schema(self) -> None:
+        """
+        Load the JSON schema for language identification.
+
+        This method fetches the schema from the specified URL and creates a
+        Draft6Validator for it. The schema and the validator are stored as instance
+        variables for later use.
+
+        Raises:
+            jsonschema.exceptions.SchemaError: If the provided schema is not valid.
+            jsonschema.exceptions.RefResolutionError: If the provided schema contains an
+            unresolvable JSON reference.
+        """
+        base_uri = (
+            "https://impresso.github.io/impresso-schemas/json/language_identification/"
+        )
+        schema_file = "language_identification.schema.json"
+
+        with smart_open.open(
+            base_uri + schema_file,
+            "r",
+        ) as f:
+            self.schema = json.load(f)
+
+        resolver = jsonschema.RefResolver(
+            referrer=self.schema,
+            base_uri=base_uri,
+        )
+        self.schema_validator = jsonschema.Draft6Validator(
+            schema=self.schema,
+            resolver=resolver,
+        )
+
     def write_output(self) -> None:
         """Write JSONlines output"""
 
-        with open(self.outfile, mode="w", encoding="utf-8") as of:
+        with smart_open.open(self.outfile, mode="w", encoding="utf-8") as of:
             writer = jsonlines.Writer(of)
             writer.write_all(self.results)
 
     def write_diagnostics(self) -> None:
         """Write JSON diagnostics with per-collectio stats"""
 
-        with open(self.diagnostics_json, mode="w", encoding="utf-8") as of:
+        with smart_open.open(self.diagnostics_json, mode="w", encoding="utf-8") as of:
             print(json.dumps(self.stats), file=of)
 
     def next_content_item(self) -> Iterable[dict]:
         """Yield next content item"""
 
-        with open(self.infile, mode="r", encoding="utf-8") as reader:
+        with smart_open.open(self.infile, mode="r", encoding="utf-8") as reader:
             json_reader = jsonlines.Reader(reader)
             for jdata in json_reader:
                 yield jdata
@@ -220,11 +274,13 @@ class ImpressoLanguageIdentifier(object):
                             self.collection_stats["lg_support"][lid].get(lang) or 0.0
                         )
 
-                        # weight vote on trustworthiness of a LID predicting a particular language
+                        # weight vote on trustworthiness of a LID predicting a
+                        # particular language
                         if lang_support:
                             vote_score = prob * lang_support
 
-                            # special weight for impresso_ft when predicting Luxembourgish
+                            # special weight for impresso_ft when predicting
+                            # Luxembourgish
                             if lid == "impresso_ft" and lang == "lb":
                                 vote_score *= self.weight_lb_impresso_ft
 
@@ -383,7 +439,7 @@ if __name__ == "__main__":
         "--threshold_confidence_orig_lg",
         default=0.75,
         type=float,
-        help="ignore original language information when below this confidence threshold (default %(default)s)",
+        help="ignore original language when below this threshold (default %(default)s)",
     )
 
     parser.add_argument(
@@ -420,6 +476,11 @@ if __name__ == "__main__":
         help="minimal vote score for voting decision to be accepted (default %(default)s)",
     )
     parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="validate final lang identification JSON against schema (default %(default)s)",
+    )
+    parser.add_argument(
         "--diagnostics-json",
         type=str,
         help="filename for statistical diagnostics information in JSON format",
@@ -450,7 +511,7 @@ if __name__ == "__main__":
         "--git-describe",
         type=str,
         default="",
-        help="output of git describe command for ingesting git version into JSON as version string",
+        help="git describe output for ingesting version into JSON as version string",
     )
 
     arguments = parser.parse_args()
@@ -464,7 +525,7 @@ if __name__ == "__main__":
     ]
     logging.basicConfig(
         level=log_levels[arguments.verbose],
-        format="%(asctime)-15s %(levelname)s: %(message)s",
+        format="%(asctime)-15s %(filename)s:%(lineno)d %(levelname)s: %(message)s",
     )
     log.info(f"{arguments}")
     language_identifier_args = {
@@ -480,6 +541,7 @@ if __name__ == "__main__":
         "admissible_languages",
         "diagnostics_json",
         "git_describe",
+        "validate",
     }
     # launching application ...
     ImpressoLanguageIdentifier(

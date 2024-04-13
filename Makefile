@@ -12,6 +12,34 @@ export SHELLOPTS := errexit:pipefail
 .SECONDARY:
 .PHONY: impresso-lid impresso-lid-eval impresso-lid-stage1a-target impresso-lid-stage1b-target impresso-lid-stage2-target impresso-lid-upload-release-to-s3 impresso-lid-eval
 
+
+# Defines local variables if file exists
+# See README.md for details
+-include Makefile.local.mk
+
+
+# Help target for displaying usage information
+help:
+	@echo "Usage: make <target>"
+	@echo "Targets:"
+	@echo "  impresso-lid                           # Run the full impresso Language Identification (LID) pipeline."
+	@echo "  impresso-lid-stage1a-target            # Process initial language identification for each content item."
+	@echo "  impresso-lid-stage1b-target            # Collect and summarize statistics from Stage 1a."
+	@echo "  impresso-lid-stage2-target             # Finalize language decisions and generate diagnostics."
+	@echo "  impresso-lid-upload-release-to-s3      # Upload the processed data to an AWS S3 bucket."
+	@echo "  impresso-lid-statistics                # Generate statistics from the processed data."
+	@echo "  impresso-lid-eval                      # Evaluate the LID results against a gold standard."
+	@echo "  update-requirements                    # Update the Python dependencies file."
+	@echo "  help                                   # Show this help message"
+
+# Default goal set to the help target
+.DEFAULT_GOAL := help
+
+# Add the help target to the list of phony targets to ensure it runs as needed without prerequisites
+.PHONY: help $(PHONY_TARGETS)
+
+
+
 # generally export all variables to sub-make calls (needed in this Makefile)
 # The targets of stage 1a need the targets of stage 1b to exist
 #export
@@ -60,11 +88,11 @@ endif
 # only read access is needed
 IMPRESSO_REBUILT_DATA_DIR ?= rebuilt-data
 
-# Language identification version
-LID_VERSION ?= v1.4.4
-
 # build dir
 BUILD_DIR ?= build
+
+# Language identification version
+LID_VERSION ?= v1.4.4
 
 # write access is needed here
 LID_BUILD_DIR ?= $(BUILD_DIR)/$(LID_VERSION)
@@ -208,6 +236,7 @@ impresso-lid-stage1b-target: impresso-lid-stage1a-target \
 	$(impresso-lid-stage1b-files) \
 	$(LID_BUILD_DIR)/stage1.stats.json
 
+
 ########################################################################################################################
 # Stage 2 second part: Decide for a language given collection statistics and individual content item predictions
 
@@ -231,6 +260,7 @@ $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2 $(LID_BUILD_DIR)/$(stage2-dir)/%.diag
 	 --minimal-text-length $(STAGE2_MINIMAL_TEXT_LENGTH) \
 	 --collection-stats-filename $(patsubst %/,%.stats.json,$(subst /$(stage2-dir),/stage1,$(dir $@))) \
 	 --git-describe $$(git describe) \
+	 --validate \
 	 --diagnostics-json $(@:jsonl.bz2=)diagnostics.json \
 	 --infile $< \
 	 --outfile $@.working.jsonl.bz2 \
@@ -241,35 +271,15 @@ $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2 $(LID_BUILD_DIR)/$(stage2-dir)/%.diag
 	|| { echo "Warning: Something went wrong while building $@. Check $@.log. Cleaning up $@ now." ; rm -vf $@ ; exit 1 ; }
 
 
+
 ########################################################################################################################
 # Prepare official distribution for impresso with files per year
 
-release-dir :=  $(LID_BUILD_DIR)/s3/$(LID_VERSION)
-
-impresso-lid-release-files := $(subst $(LID_BUILD_DIR)/$(stage2-dir),$(release-dir),$(impresso-lid-stage2-files))
-
-$(eval $(call debug_variable,impresso-lid-release-files))
-
-#: Validate all files to be released as processed data
-impresso-lid-release-target : \
-	impresso-lid-stage2-target \
-	$(impresso-lid-release-files)
-
-
-$(release-dir)/%.jsonl.bz2: $(LID_BUILD_DIR)/$(stage2-dir)/%.jsonl.bz2
-	mkdir -p $(@D) \
-	&& python impresso-schemas/scripts/jsonlschema.py  \
-		--schema impresso-schemas/json/language_identification/language_identification.schema.json \
-		--input-files $< \
-		--output-file $@
-
-$(release-dir)/%.diagnostics.json: $(LID_BUILD_DIR)/$(stage2-dir)/%.diagnostics.json
-	cp -ua $< $@
 
 #: Actually upload the impresso lid information to s3 impresso bucket
-impresso-lid-upload-release-to-s3: impresso-lid-release-target
-	rclone --verbose copy $(LID_BUILD_DIR)/s3/$(LID_VERSION) s3-impresso:$(S3_BUCKET_LANGIDENT_PATH)/$(LID_VERSION) \
-	&& rclone --verbose check $(LID_BUILD_DIR)/s3/$(LID_VERSION)/ s3-impresso:$(S3_BUCKET_LANGIDENT_PATH)/$(LID_VERSION)/
+impresso-lid-upload-release-to-s3: impresso-lid-stage2-target
+	rclone --dry-run --verbose copy $(LID_BUILD_DIR)/stage2/ s3-impresso:$(S3_BUCKET_LANGIDENT_PATH)/$(LID_VERSION) --include "*.jsonl.bz2" --ignore-existing \
+	&& rclone --verbose check $(LID_BUILD_DIR)/stage2/$(LID_VERSION)/ s3-impresso:$(S3_BUCKET_LANGIDENT_PATH)/$(LID_VERSION)/
 
 
 ########################################################################################################################
@@ -282,7 +292,7 @@ impresso-lid-stage2-diagnostics-files-manifest-target: \
 $(LID_BUILD_DIR)/statistics.d/impresso-lid-stage2-diagnostics-files-manifest.txt: $(impresso-lid-stage2-diagnostics-files)
 	mkdir -p $(@D) && $(file > $@,$+)
 
-
+# create directory
 %.d:
 	mkdir -p $@
 
@@ -299,13 +309,6 @@ $(LID_BUILD_DIR)/statistics.d/per-collection-year-contentitems.tsv: $(impresso-l
 $(LID_BUILD_DIR)/statistics.d/collection-year-language-data.tsv: $(impresso-lid-stage2-diagnostics-files)
 	cat $+ | jq -r '(.N|to_entries[0]|.key|split("-"))  as [$$collection,$$year]| (.lg|to_entries|map({key,value,$$collection,$$year})|.[]|[.collection,.year,.key,.value]|sort_by(.0,.1,.2)|@tsv)' |sort | sponge $@
 
-#: Simple check whether number of content items per collection-year pair matches other impresso processing statistics
-$(LID_BUILD_DIR)/statistics.d/per-collection-year-contentitems.tsv: $(impresso-lid-stage2-diagnostics-files)
-	mkdir -p $(@D) \
-	&& cat $+ | jq -r '.N|to_entries[0]|[.key,.value]|@tsv' | sort | sponge $@
-
-$(LID_BUILD_DIR)/statistics.d/collection-year-language-data.tsv: $(impresso-lid-stage2-diagnostics-files)
-	cat $+ | jq -r '(.N|to_entries[0]|.key|split("-"))  as [$$collection,$$year]| (.lg|to_entries|map({key,value,$$collection,$$year})|.[]|[.collection,.year,.key,.value]|sort_by(.0,.1,.2)|@tsv)' |sort | sponge $@
 
 ########################################################################################################################
 # Evaluate against gold standard
@@ -323,3 +326,8 @@ $(LID_BUILD_DIR)/$(stage2-dir).eval.all.$(EVALUATION_OUTPUT_FORMAT): impresso-li
 	 $(DEBUG_OPTION) \
 	 $(TARGET_LOG_MACRO) \
 	 | sponge $@
+
+
+
+update-requirements:
+	pipenv requirements > requirements.txt

@@ -6,12 +6,11 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-impresso-commons ="*"
 jsonlines = "*"
 langid = "*"
 langdetect = "*"
 fasttext = "*"
-smart-open = "*"
+smart-open= {extras = ["s3","http"], version = "==6.4"}
 jsonschema = "*"
 
 [requires]
