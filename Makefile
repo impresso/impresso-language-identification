@@ -12,6 +12,11 @@ export SHELLOPTS := errexit:pipefail
 .SECONDARY:
 .PHONY: impresso-lid impresso-lid-eval impresso-lid-stage1a-target impresso-lid-stage1b-target impresso-lid-stage2-target impresso-lid-upload-release-to-s3 impresso-lid-eval
 
+
+# Defines local variables if file exists
+# See README.md for details
+-include Makefile.local.mk
+
 # generally export all variables to sub-make calls (needed in this Makefile)
 # The targets of stage 1a need the targets of stage 1b to exist
 #export
