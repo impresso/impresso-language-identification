@@ -5,6 +5,7 @@ test?/
 testbuild/
 venv/
 Makefile.local.mk
+config.local.mk
 .env
 *.d
 *.pyc
