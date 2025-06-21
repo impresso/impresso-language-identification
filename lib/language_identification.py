@@ -8,6 +8,7 @@ This module provides a flexible framework for applying multiple language identif
 - langdetect: Statistical language detection
 - langid: Language identification using n-gram features  
 - FastText models: Including custom impresso and Wikipedia models
+- impresso_langident_pipeline: Advanced language identification using the impresso pipeline
 
 The module uses a dynamic registry pattern to easily add new LID systems and handles
 text validation, model initialization, and result aggregation in a modular way.
@@ -48,10 +49,22 @@ from langdetect.lang_detect_exception import LangDetectException
 from langid import langid
 import smart_open
 
+try:
+    from impresso_pipelines.langident import LangIdentPipeline
+    IMPRESSO_LANGIDENT_PIPELINE_AVAILABLE = True
+except ImportError:
+    IMPRESSO_LANGIDENT_PIPELINE_AVAILABLE = False
+    
+
 from impresso_cookbook.s3_to_local_stamps import get_s3_client, get_timestamp
 
 dotenv.load_dotenv()
 log = logging.getLogger(__name__)
+
+# Log warning if impresso_pipelines is not available
+if not IMPRESSO_LANGIDENT_PIPELINE_AVAILABLE:
+    log.warning("impresso_pipelines package not available - impresso_langident_pipeline will not be functional")
+    log.warning("Please install it with 'pip install impresso_pipelines' to use this feature.")
 
 
 def alphabetical_ratio(text: str) -> Optional[float]:
@@ -178,7 +191,7 @@ class LanguageIdentifier(object):
     :param int minimal_text_length: Threshold for text length in characters to apply
         automatic language identification.
     :param list lids: List of LID systems to use (e.g., ['langdetect', 'langid']).
-        Available systems: langdetect, langid, impresso_ft, wp_ft.
+        Available systems: langdetect, langid, impresso_ft, wp_ft, impresso_langident_pipeline.
     :param int round_ndigits: Number of decimal places in the output.
     :param str git_describe: Output of git describe command for version tracking.
     :param float alphabetical_ratio_threshold: Minimum ratio of alphabetic characters
@@ -243,6 +256,7 @@ class LanguageIdentifier(object):
             ),
             "impresso_ft": lambda: fasttext.load_model(self.impresso_ft) if self.impresso_ft else None,
             "wp_ft": lambda: fasttext.load_model(self.wp_ft) if self.wp_ft else None,
+            "impresso_langident_pipeline": lambda: LangIdentPipeline() if IMPRESSO_LANGIDENT_PIPELINE_AVAILABLE else None,
         }
         
         # Initialize only requested models
@@ -255,6 +269,8 @@ class LanguageIdentifier(object):
                         log.info("Successfully loaded %s model", lid_system)
                     else:
                         log.warning("Model path not provided for %s", lid_system)
+                        if lid_system == "impresso_langident_pipeline" and not IMPRESSO_LANGIDENT_PIPELINE_AVAILABLE:
+                            log.warning("impresso_pipelines package not available")
                 except Exception as e:
                     log.error("Failed to load %s model: %s", lid_system, e)
             elif lid_system != "langdetect":  # langdetect doesn't need model initialization
@@ -294,6 +310,17 @@ class LanguageIdentifier(object):
             )
             return None
 
+    def _apply_impresso_langident_pipeline(self, text: str, model) -> Optional[List[Dict[str, Union[str, float]]]]:
+        """Apply impresso_pipelines language identification."""
+        try:
+            predictions = model(text,diagnostics=True)["diagnostics"]["languages"]
+            result = [{"lang":r["language"], "prob": prob} for r in predictions if (prob := r["score"]) > 0.05]
+            # probabilites are already rounded in the pipeline
+            return result
+        except Exception:
+            log.error("IMPRESSO-LANGIDENT-PIPELINE-ERROR-WITH %s", sys.exc_info()[0])
+            return None
+
     def _perform_language_identification(self, text: str, models: dict, jinfo: dict) -> None:
         """Perform language identification with all configured models."""
         
@@ -303,12 +330,16 @@ class LanguageIdentifier(object):
             "langid": lambda: self._apply_langid(text, models["langid"]) if "langid" in models else None,
             "impresso_ft": lambda: self._apply_fasttext(text, models["impresso_ft"], "impresso_ft") if "impresso_ft" in models else None,
             "wp_ft": lambda: self._apply_fasttext(text, models["wp_ft"], "wp_ft") if "wp_ft" in models else None,
+            "impresso_langident_pipeline": lambda: self._apply_impresso_langident_pipeline(text, models["impresso_langident_pipeline"]) if "impresso_langident_pipeline" in models else None,
         }
         
         # Apply each requested LID system
         for lid_system in self.lids:
             if lid_system in model_handlers:
-                jinfo[lid_system] = model_handlers[lid_system]()
+                result = model_handlers[lid_system]()
+                jinfo[lid_system] = result
+                if result is None:
+                    log.debug("No result from %s language identifier", lid_system)
             else:
                 log.warning("No handler defined for LID system: %s", lid_system)
                 jinfo[lid_system] = None
@@ -346,6 +377,30 @@ class LanguageIdentifier(object):
             
         return True, text, alpha_ratio
 
+    def _check_language_disagreements(self, jinfo: dict) -> None:
+        """Check for disagreements between language identifiers and log them."""
+        # Extract best predictions from each model that returned results
+        best_predictions = {}
+        
+        for lid_system in self.lids:
+            if lid_system in jinfo and jinfo[lid_system] is not None:
+                results = jinfo[lid_system]
+                if isinstance(results, list) and len(results) > 0:
+                    # Get the top prediction (highest probability)
+                    best_lang = results[0]["lang"]
+                    best_predictions[lid_system] = best_lang
+        
+        # Check if we have at least 2 predictions to compare
+        if len(best_predictions) < 2:
+            return
+            
+        # Check if all predictions agree
+        unique_predictions = set(best_predictions.values())
+        if len(unique_predictions) > 1:
+            # Log disagreement with document ID and all predictions
+            predictions_str = ", ".join([f"{lid}:{lang}" for lid, lang in best_predictions.items()])
+            log.info("LANGUAGE-DISAGREEMENT %s: %s", jinfo["id"], predictions_str)
+
     def language_identification(self) -> None:
         """Run multiple language identifications with the models provided and update results."""
         models = self._initialize_models()
@@ -371,6 +426,10 @@ class LanguageIdentifier(object):
                 # Text is valid for language identification
                 jinfo["alphabetical_ratio"] = round(alpha_ratio, self.round_ndigits)
                 self._perform_language_identification(text, models, jinfo)
+                
+                # Check for disagreements between language identifiers
+                self._check_language_disagreements(jinfo)
+                
                 self.results.append(jinfo)
                 
             except Exception:
@@ -421,7 +480,7 @@ def main():
     import argparse
 
     DESCRIPTION = (
-        "Compute language identification classes and their probabilities "
+        "Identify languages andtheir probabilities "
         "with different LID systems."
     )
 
@@ -436,7 +495,7 @@ def main():
         "-i",
         "--infile",
         default="/dev/stdin",
-        help="path to input file in impresso bz2 rebuilt format (default %(default)s)",
+        help="path to input file in impresso rebuilt format (default %(default)s)",
     )
     parser.add_argument(
         "-o",
@@ -449,9 +508,10 @@ def main():
     parser.add_argument(
         "--lids",
         nargs="+",
-        default=[],
+        default=["langdetect", "langid", "impresso_ft", "wp_ft", "impresso_langident_pipeline"],
+        choices=["langdetect", "langid", "impresso_ft", "wp_ft", "impresso_langident_pipeline"],
         metavar="LID",
-        help="names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here!",
+        help="names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here! %(default)s)",
     )
 
     # Models
