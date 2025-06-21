@@ -26,14 +26,13 @@ Example usage:
         outfile="output.jsonl", 
         lids=["langdetect", "langid"],
         minimal_text_length=20,
-        alphabetical_ratio_threshold=0.5
+        alphabetical_ratio_threshold=0.0  # Default: no alphabetical ratio filtering
     )
     processor.run()
 """
 
-__version__ = "2025.06.20"
+__version__ = "2025.06.21"
 
-import datetime
 import json
 import logging
 import re
@@ -42,7 +41,7 @@ import time
 from collections import Counter
 from typing import Dict, List, Optional, Iterable, Set, Union, Tuple
 
-import dotenv
+
 import fasttext
 import langdetect
 from langdetect.lang_detect_exception import LangDetectException
@@ -54,17 +53,27 @@ try:
     IMPRESSO_LANGIDENT_PIPELINE_AVAILABLE = True
 except ImportError:
     IMPRESSO_LANGIDENT_PIPELINE_AVAILABLE = False
+
+try:
+    from lingua import LanguageDetectorBuilder, Language, IsoCode639_1
+    LINGUA_AVAILABLE = True
+except ImportError:
+    LINGUA_AVAILABLE = False
     
 
 from impresso_cookbook.s3_to_local_stamps import get_s3_client, get_timestamp
 
-dotenv.load_dotenv()
 log = logging.getLogger(__name__)
 
 # Log warning if impresso_pipelines is not available
 if not IMPRESSO_LANGIDENT_PIPELINE_AVAILABLE:
     log.warning("impresso_pipelines package not available - impresso_langident_pipeline will not be functional")
     log.warning("Please install it with 'pip install impresso_pipelines' to use this feature.")
+
+# Log warning if lingua is not available
+if not LINGUA_AVAILABLE:
+    log.warning("lingua package not available - lingua will not be functional")
+    log.warning("Please install it with 'pip install lingua-language-detector' to use this feature.")
 
 
 def alphabetical_ratio(text: str) -> Optional[float]:
@@ -149,7 +158,7 @@ def avg_langdetect_lid(
 
 
 def fasttext_lid(
-    text: str, ft_model, round_ndigits: int = 9
+    text: str, ft_model, round_ndigits: int = 3
 ) -> List[Dict[str, Union[str, float]]]:
     """
     Return results of a fasttext model.
@@ -165,7 +174,7 @@ def fasttext_lid(
     # ignore digits
     text = re.sub(r"\d+", "", text)
 
-    labels, probs = ft_model.predict(text, k=3, threshold=0.05)
+    labels, probs = ft_model.predict(text, k=5, threshold=0.05)
     result = [
         {
             "lang": lang.replace("__label__", ""),
@@ -191,7 +200,7 @@ class LanguageIdentifier(object):
     :param int minimal_text_length: Threshold for text length in characters to apply
         automatic language identification.
     :param list lids: List of LID systems to use (e.g., ['langdetect', 'langid']).
-        Available systems: langdetect, langid, impresso_ft, wp_ft, impresso_langident_pipeline.
+        Available systems: langdetect, langid, impresso_ft, wp_ft, impresso_langident_pipeline, lingua.
     :param int round_ndigits: Number of decimal places in the output.
     :param str git_describe: Output of git describe command for version tracking.
     :param float alphabetical_ratio_threshold: Minimum ratio of alphabetic characters
@@ -234,10 +243,7 @@ class LanguageIdentifier(object):
     def run(self):
         """Run the language identification process."""
         self.start_time = time.time()
-        #log.info(
-        #    "Language identification started with config: "
-        #    f"{json.dumps(vars(self), default=lambda x: list(x) if isinstance(x, set) else x)}"
-        #)
+    
         self.language_identification()
         self.write_output()
         
@@ -257,6 +263,7 @@ class LanguageIdentifier(object):
             "impresso_ft": lambda: fasttext.load_model(self.impresso_ft) if self.impresso_ft else None,
             "wp_ft": lambda: fasttext.load_model(self.wp_ft) if self.wp_ft else None,
             "impresso_langident_pipeline": lambda: LangIdentPipeline() if IMPRESSO_LANGIDENT_PIPELINE_AVAILABLE else None,
+            "lingua": lambda: LanguageDetectorBuilder.from_all_languages().build() if LINGUA_AVAILABLE else None,
         }
         
         # Initialize only requested models
@@ -271,6 +278,8 @@ class LanguageIdentifier(object):
                         log.warning("Model path not provided for %s", lid_system)
                         if lid_system == "impresso_langident_pipeline" and not IMPRESSO_LANGIDENT_PIPELINE_AVAILABLE:
                             log.warning("impresso_pipelines package not available")
+                        if lid_system == "lingua" and not LINGUA_AVAILABLE:
+                            log.warning("lingua package not available")
                 except Exception as e:
                     log.error("Failed to load %s model: %s", lid_system, e)
             elif lid_system != "langdetect":  # langdetect doesn't need model initialization
@@ -321,6 +330,23 @@ class LanguageIdentifier(object):
             log.error("IMPRESSO-LANGIDENT-PIPELINE-ERROR-WITH %s", sys.exc_info()[0])
             return None
 
+    def _apply_lingua(self, text: str, model) -> Optional[List[Dict[str, Union[str, float]]]]:
+        """Apply lingua language identification."""
+        try:
+            confidence_values = model.compute_language_confidence_values(text.lower())
+            result = [
+                {
+                    "lang": confidence.language.iso_code_639_1.name.lower(),
+                    "prob": round(confidence.value, self.round_ndigits)
+                }
+                for confidence in confidence_values
+                if confidence.value > 0.05  # Filter out very low confidence predictions
+            ]
+            return result
+        except Exception:
+            log.error("LINGUA-ERROR-WITH %s", sys.exc_info()[0])
+            return None
+
     def _perform_language_identification(self, text: str, models: dict, jinfo: dict) -> None:
         """Perform language identification with all configured models."""
         
@@ -331,6 +357,7 @@ class LanguageIdentifier(object):
             "impresso_ft": lambda: self._apply_fasttext(text, models["impresso_ft"], "impresso_ft") if "impresso_ft" in models else None,
             "wp_ft": lambda: self._apply_fasttext(text, models["wp_ft"], "wp_ft") if "wp_ft" in models else None,
             "impresso_langident_pipeline": lambda: self._apply_impresso_langident_pipeline(text, models["impresso_langident_pipeline"]) if "impresso_langident_pipeline" in models else None,
+            "lingua": lambda: self._apply_lingua(text, models["lingua"]) if "lingua" in models else None,
         }
         
         # Apply each requested LID system
@@ -508,8 +535,8 @@ def main():
     parser.add_argument(
         "--lids",
         nargs="+",
-        default=["langdetect", "langid", "impresso_ft", "wp_ft", "impresso_langident_pipeline"],
-        choices=["langdetect", "langid", "impresso_ft", "wp_ft", "impresso_langident_pipeline"],
+        default=["langdetect", "langid", "impresso_ft", "wp_ft", "impresso_langident_pipeline","lingua"],
+        choices=["langdetect", "langid", "impresso_ft", "wp_ft", "impresso_langident_pipeline", "lingua"],
         metavar="LID",
         help="names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here! %(default)s)",
     )
