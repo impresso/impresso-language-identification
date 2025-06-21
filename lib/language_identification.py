@@ -1,46 +1,65 @@
 #!/usr/bin/env python3
 
 """
-Compute language identification classes and their probabilities with different LID
-systems
+Language identification module for newspaper content items.
+
+This module provides a flexible framework for applying multiple language identification
+(LID) systems to content items. It supports various LID systems including:
+- langdetect: Statistical language detection
+- langid: Language identification using n-gram features  
+- FastText models: Including custom impresso and Wikipedia models
+
+The module uses a dynamic registry pattern to easily add new LID systems and handles
+text validation, model initialization, and result aggregation in a modular way.
+
+Key features:
+- Configurable text length and alphabetical ratio thresholds
+- Support for variable number of LID models
+- Robust error handling for individual models
+- S3 and local file support for input/output
+- Comprehensive logging with structured output
+
+Example usage:
+    processor = LanguageIdentifier(
+        infile="input.jsonl",
+        outfile="output.jsonl", 
+        lids=["langdetect", "langid"],
+        minimal_text_length=20,
+        alphabetical_ratio_threshold=0.5
+    )
+    processor.run()
 """
 
-__version__ = "2024.04.12"
+__version__ = "2025.06.20"
 
 import datetime
 import json
 import logging
 import re
 import sys
+import time
 from collections import Counter
 from typing import Dict, List, Optional, Iterable, Set, Union, Tuple
 
+import dotenv
 import fasttext
 import langdetect
 from langdetect.lang_detect_exception import LangDetectException
 from langid import langid
 import smart_open
 
+from impresso_cookbook.s3_to_local_stamps import get_s3_client, get_timestamp
+
+dotenv.load_dotenv()
 log = logging.getLogger(__name__)
 
 
 def alphabetical_ratio(text: str) -> Optional[float]:
-    """Return the percentage of alphabetic characters of a text
-
-    All digits, punctuation symbols, layout characters, are removed
-
-    :param str text: Any text.
-    :return: Ratio of alphabetic characters wrt to total length of text.
-    :rtype: float
-
-    """
-
-    len_text = len(text)
-    if len_text == 0:
+    """Return the percentage of alphabetic characters of a text."""
+    if not text:
         return None
-    filtered = re.sub(r"[\W_\d]+", "", text)
-
-    return len(filtered) / len_text
+    filtered_length = len(re.sub(r"[\W_\d]+", "", text))
+    return filtered_length / len(text) if filtered_length else None
 
 
 def average_distribution(
@@ -104,6 +123,8 @@ def avg_langdetect_lid(
     langdetect.DetectorFactory.seed = seed
 
     results = []
+    lower = text.lower()
+    text =lower  # add lower case text to increase detection probability
     for i in range(n):
         langdetect.DetectorFactory.seed += i
         result = langdetect.detect_langs(text)
@@ -146,31 +167,24 @@ def fasttext_lid(
 class LanguageIdentifier(object):
     """Predict languages for content items.
 
+    This class applies multiple language identification systems to newspaper content
+    items using a flexible, registry-based approach. It handles text validation,
+    model initialization, and result aggregation.
+
     :param str infile: Path to input file in impresso bz2 rebuilt format.
-
     :param str outfile: JSON file with language predictions per content item.
-
     :param str impresso_ft: Path to binary fasttext LID impresso model.
-
     :param str wp_ft: Path to binary fasttext LID Wikipedia model.
-
-    :param int minimal_text_length: threshold for text length in characters to apply
+    :param int minimal_text_length: Threshold for text length in characters to apply
         automatic language identification.
+    :param list lids: List of LID systems to use (e.g., ['langdetect', 'langid']).
+        Available systems: langdetect, langid, impresso_ft, wp_ft.
+    :param int round_ndigits: Number of decimal places in the output.
+    :param str git_describe: Output of git describe command for version tracking.
+    :param float alphabetical_ratio_threshold: Minimum ratio of alphabetic characters
+        required for language identification.
 
-    :param Set[str] lids: Set of LID systems predict to language/probability pairs.
-        Therefore, orig_lg is not seen as LID system as it "predicts" only a single
-        language if any.
-
-    :attr type results: Description of parameter `results`
-
-    :param int round_ndigits: Number of decimal places in the output
-
-    :param str git_describe: Output of git describe to use as version if not empty
-        string
-
-    :attr list results: Collection of content items with the language prediction of
-        various systems.
-
+    :attr list results: Collection of content items with language predictions.
     """
 
     def __init__(
@@ -183,6 +197,7 @@ class LanguageIdentifier(object):
         lids: list,
         round_ndigits: int,
         git_describe: str,
+        alphabetical_ratio_threshold: float,
     ):
 
         self.infile: str = infile
@@ -193,137 +208,177 @@ class LanguageIdentifier(object):
 
         self.lids: Set[str] = set(lids)
         log.info(
-            f"Predicting with the following off-the-shelve LID systems: {', '.join(lids)}."
+            "Predicting with the following off-the-shelve LID systems: %s.", ', '.join(lids)
         )
         self.round_ndigits = round_ndigits
         self.git_describe = git_describe
+        self.s3_client = get_s3_client()
         self.results = []
+        self.alphabetical_ratio_threshold = alphabetical_ratio_threshold
+        self.start_time = None
+        self.ts = get_timestamp()
 
     def run(self):
         """Run the language identification process."""
-        log.info(
-            "Language identification started with config: "
-            f"{json.dumps(vars(self), default=lambda x: list(x) if isinstance(x, set) else x)}"
-        )
+        self.start_time = time.time()
+        #log.info(
+        #    "Language identification started with config: "
+        #    f"{json.dumps(vars(self), default=lambda x: list(x) if isinstance(x, set) else x)}"
+        #)
         self.language_identification()
         self.write_output()
-        log.info("Language identification finished.")
+        
+        # Log compute time
+        total_time = time.time() - self.start_time
+        log.info("Language identification finished in %.2f seconds.", total_time)
+
+    def _initialize_models(self):
+        """Initialize language identification models based on requested LID systems."""
+        models = {}
+        
+        # Define model initializers
+        model_initializers = {
+            "langid": lambda: langid.LanguageIdentifier.from_modelstring(
+                langid.model, norm_probs=True
+            ),
+            "impresso_ft": lambda: fasttext.load_model(self.impresso_ft) if self.impresso_ft else None,
+            "wp_ft": lambda: fasttext.load_model(self.wp_ft) if self.wp_ft else None,
+        }
+        
+        # Initialize only requested models
+        for lid_system in self.lids:
+            if lid_system in model_initializers:
+                try:
+                    model = model_initializers[lid_system]()
+                    if model is not None:
+                        models[lid_system] = model
+                        log.info("Successfully loaded %s model", lid_system)
+                    else:
+                        log.warning("Model path not provided for %s", lid_system)
+                except Exception as e:
+                    log.error("Failed to load %s model: %s", lid_system, e)
+            elif lid_system != "langdetect":  # langdetect doesn't need model initialization
+                log.warning("Unknown LID system: %s", lid_system)
+                
+        return models
+
+    def _apply_langdetect(self, text: str) -> Optional[List[Dict[str, Union[str, float]]]]:
+        """Apply langdetect language identification."""
+        try:
+            return avg_langdetect_lid(text, 3, round_ndigits=self.round_ndigits)
+        except LangDetectException:
+            log.error("LANGDETECT-ERROR-WITH %s %s", text, sys.exc_info()[0])
+            return None
+
+    def _apply_langid(self, text: str, model) -> Optional[List[Dict[str, Union[str, float]]]]:
+        """Apply langid language identification."""
+        try:
+            lang_orig, lang_prob_orig = model.classify(text.lower())
+            return [{
+                "lang": lang_orig,
+                "prob": round(lang_prob_orig, self.round_ndigits),
+            }]
+        except Exception:
+            log.error("LANGID-ERROR-WITH %s", sys.exc_info()[0])
+            return None
+
+    def _apply_fasttext(self, text: str, model, model_name: str) -> Optional[List[Dict[str, Union[str, float]]]]:
+        """Apply FastText language identification."""
+        try:
+            return fasttext_lid(text, model, round_ndigits=self.round_ndigits)
+        except Exception:
+            log.error(
+                "%s-ERROR-WITH %s | Input: %s",
+                model_name.upper(), sys.exc_info()[0], text,
+                exc_info=True,
+            )
+            return None
+
+    def _perform_language_identification(self, text: str, models: dict, jinfo: dict) -> None:
+        """Perform language identification with all configured models."""
+        
+        # Define model handlers
+        model_handlers = {
+            "langdetect": lambda: self._apply_langdetect(text),
+            "langid": lambda: self._apply_langid(text, models["langid"]) if "langid" in models else None,
+            "impresso_ft": lambda: self._apply_fasttext(text, models["impresso_ft"], "impresso_ft") if "impresso_ft" in models else None,
+            "wp_ft": lambda: self._apply_fasttext(text, models["wp_ft"], "wp_ft") if "wp_ft" in models else None,
+        }
+        
+        # Apply each requested LID system
+        for lid_system in self.lids:
+            if lid_system in model_handlers:
+                jinfo[lid_system] = model_handlers[lid_system]()
+            else:
+                log.warning("No handler defined for LID system: %s", lid_system)
+                jinfo[lid_system] = None
+
+    def _create_base_info(self, content_item: dict) -> dict:
+        """Create base information dictionary for a content item."""
+        return {
+            "tp": content_item["tp"],
+            "id": content_item["id"],
+            "len": len(content_item.get("ft", "")),
+            "orig_lg": content_item.get("lg"),
+            "language_identifier_version": {
+                "version": self.git_describe or __version__,
+                "ts":self.ts,
+            },
+        }
+
+    def _is_text_valid_for_lid(self, content_item: dict) -> tuple[bool, str, float]:
+        """
+        Check if text is valid for language identification.
+        
+        Returns:
+            Tuple of (is_valid, text, alphabetical_ratio_value)
+        """
+        if "ft" not in content_item or not isinstance(content_item["ft"], str):
+            return False, "", 0.0
+            
+        text = content_item["ft"].strip()
+        if len(text) < self.minimal_text_length:
+            return False, text, 0.0
+            
+        alpha_ratio = alphabetical_ratio(text)
+        if alpha_ratio is None or alpha_ratio < self.alphabetical_ratio_threshold:
+            return False, text, alpha_ratio or 0.0
+            
+        return True, text, alpha_ratio
 
     def language_identification(self) -> None:
-        """Run multiple language identifications with the models provided and update
-        results
-        """
+        """Run multiple language identifications with the models provided and update results."""
+        models = self._initialize_models()
 
-        # initialize with langid lid classifier
-        langid_lid = langid.LanguageIdentifier.from_modelstring(
-            langid.model, norm_probs=True
-        )
-        # we no longer restrict it to certain languages
-        # langid_lid.set_languages(['de', 'fr', 'en', 'lb'])
-
-        # load provided FastText models
-        impresso_ft_model = wp_ft_model = None
-
-        if self.impresso_ft is not None:
-            impresso_ft_model = fasttext.load_model(self.impresso_ft)
-        if self.wp_ft is not None:
-            wp_ft_model = fasttext.load_model(self.wp_ft)
-
-        # iterate over content items and apply all LID models
-        for j in self.next_contentitem():
-            log.info(f"WORKING ON {j['id']}")
-            jinfo = {}
-
+        for content_item in self.next_contentitem():
+            log.info("WORKING ON %s", content_item['id'])
+            
             try:
-                # initialize information
-                jinfo.update(
-                    {
-                        "tp": j["tp"],
-                        "id": j["id"],
-                        "len": len(j.get("ft", "")),
-                        "orig_lg": j.get("lg"),
-                        "language_identifier_version": {
-                            "version": self.git_describe or __version__,
-                            "ts": datetime.datetime.now(
-                                datetime.timezone.utc
-                            ).isoformat(sep="T", timespec="seconds"),
-                        },
-                    }
-                )
-
-                # perform lid if text of content item is available and has a minimal length
-                if (
-                    "ft" in j
-                    and isinstance(j["ft"], str)
-                    and len(j["ft"].strip()) >= self.minimal_text_length
-                ):
-                    jinfo["alphabetical_ratio"] = round(
-                        alphabetical_ratio(j["ft"]), self.round_ndigits
-                    )
-
-                    # predict with langdetect
-                    if "langdetect" in self.lids:
-                        try:
-                            langdetect_result = avg_langdetect_lid(
-                                j["ft"], 3, round_ndigits=self.round_ndigits
-                            )
-                        except LangDetectException:
-                            log.error(
-                                f"LANGDETECT-ERROR-WITH {jinfo} {j['ft']}  {sys.exc_info()[0]}"
-                            )
-                            langdetect_result = None
-                        jinfo["langdetect"] = langdetect_result
-
-                    # predict with langid
-                    if "langid" in self.lids:
-                        try:
-                            lang_orig, lang_prob_orig = langid_lid.classify(j["ft"])
-                            jinfo["langid"] = [
-                                {
-                                    "lang": lang_orig,
-                                    "prob": round(lang_prob_orig, self.round_ndigits),
-                                }
-                            ]
-                        except:
-                            log.error(f"LANGID-ERROR-WITH {sys.exc_info()[0]}")
-                            jinfo["langid"] = None
-
-                    # fasttext with our own de/fr/lb model
-                    if "impresso_ft" in self.lids and impresso_ft_model is not None:
-                        try:
-                            jinfo["impresso_ft"] = fasttext_lid(
-                                j["ft"],
-                                impresso_ft_model,
-                                round_ndigits=self.round_ndigits,
-                            )
-                        except:
-                            jinfo["impresso_ft"] = None
-                            log.error(f"IMPRESSO-FT-ERROR-WITH {sys.exc_info()[0]}")
+                jinfo = self._create_base_info(content_item)
+                is_valid, text, alpha_ratio = self._is_text_valid_for_lid(content_item)
+                
+                if not is_valid:
+                    if "ft" not in content_item or not isinstance(content_item["ft"], str):
+                        log.info("Skipping %s - no valid text field", content_item['id'])
+                    elif len(text) < self.minimal_text_length:
+                        log.info("Skipping %s - insufficient text length", content_item['id'])
                     else:
-                        jinfo["impresso_ft"] = None
+                        log.info("Skipping %s - low alphabetical ratio: %s", content_item['id'], alpha_ratio)
+                    
+                    self.results.append(jinfo)
+                    continue
 
-                    # fasttext with public wikipedia model
-                    if "wp_ft" in self.lids and wp_ft_model is not None:
-                        try:
-                            jinfo["wp_ft"] = fasttext_lid(
-                                j["ft"], wp_ft_model, round_ndigits=self.round_ndigits
-                            )
-                        except:
-                            jinfo["wp_ft"] = None
-                            log.error(f"WP-FT-ERROR-WITH {sys.exc_info()[0]}")
-                    else:
-                        jinfo["wp_ft"] = None
-
+                # Text is valid for language identification
+                jinfo["alphabetical_ratio"] = round(alpha_ratio, self.round_ndigits)
+                self._perform_language_identification(text, models, jinfo)
                 self.results.append(jinfo)
-            except:
-                log.error(f"PROBLEM WITH {sys.exc_info()} {jinfo} {j}")
+                
+            except Exception:
+                log.error("PROBLEM WITH %s %s %s", sys.exc_info(), jinfo, content_item)
                 exit(1)
 
     def write_output(self) -> None:
-        """
-        Write results to jsonline output file.
-        """
-
+        """Write results to JSON Lines output file."""
         with smart_open.open(self.outfile, mode="w", encoding="utf-8") as f_out:
             for r in self.results:
                 print(
@@ -331,17 +386,38 @@ class LanguageIdentifier(object):
                 )
 
     def next_contentitem(self) -> Iterable[dict]:
-        """
-        Yield each contentitem.
-        """
-
-        with smart_open.open(self.infile, encoding="utf-8") as reader:
+        """Yield each content item from the input file."""
+        if self.infile.startswith("s3://"):
+            transport_params = {
+                "client": self.s3_client}
+        else:
+            transport_params = {}
+        with smart_open.open(self.infile, transport_params=transport_params,encoding="utf-8") as reader:
             for line in reader:
                 if line.strip():
                     yield json.loads(line)
 
 
-if __name__ == "__main__":
+def setup_logging(log_level: int, log_file: Optional[str]) -> None:
+    """Configure logging."""
+
+    class SmartFileHandler(logging.FileHandler):
+        def _open(self):
+            return smart_open.open(self.baseFilename, self.mode, encoding="utf-8")
+
+    handlers = [logging.StreamHandler()]
+    if log_file:
+        handlers.append(SmartFileHandler(log_file, mode="w"))
+
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)-15s %(filename)s:%(lineno)d %(levelname)s: %(message)s",
+        handlers=handlers,
+        force=True,
+    )
+
+
+def main():
     import argparse
 
     DESCRIPTION = (
@@ -354,18 +430,8 @@ if __name__ == "__main__":
         "recognizes additional languages identifiable only by 3 letter codes."
     )
     parser = argparse.ArgumentParser(description=DESCRIPTION, epilog=EPILOG)
-    parser.add_argument(
-        "-l", "--logfile", dest="logfile", help="write log to FILE", metavar="FILE"
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        dest="verbose",
-        default=3,
-        type=int,
-        metavar="LEVEL",
-        help="set verbosity level: 0=CRITICAL, 1=ERROR, 2=WARNING, 3=INFO 4=DEBUG (default %(default)s)",
-    )
+
+    # Input and Output Files
     parser.add_argument(
         "-i",
         "--infile",
@@ -378,13 +444,8 @@ if __name__ == "__main__":
         default="/dev/stdout",
         help="path to output file for impresso lid json format (default %(default)s)",
     )
-    parser.add_argument(
-        "-m",
-        "--minimal-text-length",
-        default=20,
-        type=int,
-        help="minimal text length of content items to apply automatic landuage identification (default %(default)s)",
-    )
+
+    # Language Identification Systems
     parser.add_argument(
         "--lids",
         nargs="+",
@@ -392,12 +453,8 @@ if __name__ == "__main__":
         metavar="LID",
         help="names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here!",
     )
-    parser.add_argument(
-        "--round-ndigits",
-        default=9,
-        type=int,
-        help="round floats in the output to n digits (default %(default)s)",
-    )
+
+    # Models
     parser.add_argument(
         "--impresso-ft",
         default=None,
@@ -410,12 +467,52 @@ if __name__ == "__main__":
         help="binary fasttext wikipedia LID model labeled wp_ft in the output ",
         metavar="FT2",
     )
+
+    # Text Length and Precision
+    parser.add_argument(
+        "-m",
+        "--minimal-text-length",
+        default=20,
+        type=int,
+        help="minimal text length of content items to apply automatic language identification (default %(default)s)",
+    )
+    parser.add_argument(
+        "--round-ndigits",
+        default=3,
+        type=int,
+        help="round floats in the output to n digits (default %(default)s)",
+    )
+
+    # Logging and Verbosity
+    parser.add_argument(
+        "-l", "--logfile", dest="logfile", help="write log to FILE", metavar="FILE"
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        dest="verbose",
+        default=3,
+        type=int,
+        metavar="LEVEL",
+        help="set verbosity level: 0=CRITICAL, 1=ERROR, 2=WARNING, 3=INFO 4=DEBUG (default %(default)s)",
+    )
+
+    # Version Information
     parser.add_argument(
         "--git-describe",
         type=str,
         default="",
         help="output of git describe command for ingesting git version into JSON as version string",
     )
+
+    # Add alphabetical_ratio_threshold to command-line arguments
+    parser.add_argument(
+        "--alphabetical-ratio-threshold",
+        default=0.0,
+        type=float,
+        help="Threshold for alphabetical ratio below which language identification is skipped (default %(default)s)",
+    )
+
     arguments = parser.parse_args()
 
     log_levels = [
@@ -426,22 +523,24 @@ if __name__ == "__main__":
         logging.DEBUG,
     ]
 
-    logging.basicConfig(
-        level=log_levels[arguments.verbose],
-        format="%(asctime)-15s %(filename)s:%(lineno)d %(levelname)s: %(message)s",
-    )
-    log.info(f"{arguments}")
-    language_identifier_args = {
-        "infile",
-        "outfile",
-        "impresso_ft",
-        "wp_ft",
-        "minimal_text_length",
-        "round_ndigits",
-        "lids",
-        "git_describe",
-    }
+    setup_logging(log_levels[arguments.verbose], arguments.logfile)
 
-    LanguageIdentifier(
-        **{k: v for k, v in vars(arguments).items() if k in language_identifier_args}
-    ).run()
+    log.info("%s", arguments)
+
+    # Directly call LanguageIdentifier with relevant arguments
+    processor = LanguageIdentifier(
+        infile=arguments.infile,
+        outfile=arguments.outfile,
+        impresso_ft=arguments.impresso_ft,
+        wp_ft=arguments.wp_ft,
+        minimal_text_length=arguments.minimal_text_length,
+        lids=arguments.lids,
+        round_ndigits=arguments.round_ndigits,
+        git_describe=arguments.git_describe,
+        alphabetical_ratio_threshold=arguments.alphabetical_ratio_threshold,
+    )
+    processor.run()
+
+
+if __name__ == "__main__":
+    main()
