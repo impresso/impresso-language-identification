@@ -316,11 +316,11 @@
                 "langident"
             ],
             "hashes": [
-                "sha256:1daed560a8473785fdf0f0eb64cba018aa69fcb670254e6b2746c707ec04aa02",
-                "sha256:8d4620e3ecfdefe56a39fab1b94f32844072fb958f65c194c4103c1be1cb096e"
+                "sha256:43ae576dbad8fc157e9be30c4fb1aa36d37b63a8aaf87e00e2cbf7ce314eba54",
+                "sha256:5fe41d6e41d8d042e62ce58b84c01c0829995ceb3842e23beb5cf95ec2bcbf36"
             ],
             "markers": "python_version >= '3.11' and python_version < '3.12'",
-            "version": "==0.4.6"
+            "version": "==0.4.6.1"
         },
         "jmespath": {
             "hashes": [
