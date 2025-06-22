@@ -398,7 +398,7 @@ class LanguageIdentifier(object):
         if len(text) < self.minimal_text_length:
             return False, text, 0.0
             
-        alpha_ratio = alphabetical_ratio(text)
+        alpha_ratio = round(alphabetical_ratio(text),2)
         if alpha_ratio is None or alpha_ratio < self.alphabetical_ratio_threshold:
             return False, text, alpha_ratio or 0.0
             
@@ -433,7 +433,7 @@ class LanguageIdentifier(object):
         models = self._initialize_models()
 
         for content_item in self.next_contentitem():
-            log.info("WORKING ON %s", content_item['id'])
+            log.debug("WORKING ON %s", content_item['id'])
             
             try:
                 jinfo = self._create_base_info(content_item)
@@ -467,9 +467,7 @@ class LanguageIdentifier(object):
         """Write results to JSON Lines output file."""
         with smart_open.open(self.outfile, mode="w", encoding="utf-8") as f_out:
             for r in self.results:
-                print(
-                    json.dumps(r, ensure_ascii=False, separators=(",", ":")), file=f_out
-                )
+                f_out.write(json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n")
 
     def next_contentitem(self) -> Iterable[dict]:
         """Yield each content item from the input file."""
