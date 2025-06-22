@@ -239,21 +239,38 @@ class LanguageIdentifier(object):
         self.alphabetical_ratio_threshold = alphabetical_ratio_threshold
         self.start_time = None
         self.ts = get_timestamp()
+        self.stats = {
+            'processed_items': 0,
+            'skipped_no_text': 0,
+            'skipped_short_text': 0,
+            'skipped_low_alpha': 0,
+            'language_identified': 0,
+            'language_disagreements': 0
+        }
 
     def run(self):
         """Run the language identification process."""
         self.start_time = time.time()
+        
+        log.info("Starting language identification process for input file: %s", self.infile)
+        log.info("Output will be written to: %s", self.outfile)
+        log.info("Using LID systems: %s", ', '.join(self.lids))
     
         self.language_identification()
         self.write_output()
         
+        # Log statistics
+        self._log_statistics()
+        
         # Log compute time
         total_time = time.time() - self.start_time
-        log.info("Language identification finished in %.2f seconds.", total_time)
+        log.info("Language identification finished for %s in %.2f seconds.", self.infile, total_time)
 
     def _initialize_models(self):
         """Initialize language identification models based on requested LID systems."""
         models = {}
+        
+        log.info("Initializing models for input file: %s", self.infile)
         
         # Define model initializers
         model_initializers = {
@@ -273,17 +290,17 @@ class LanguageIdentifier(object):
                     model = model_initializers[lid_system]()
                     if model is not None:
                         models[lid_system] = model
-                        log.info("Successfully loaded %s model", lid_system)
+                        log.info("Successfully loaded %s model for %s", lid_system, self.infile)
                     else:
-                        log.warning("Model path not provided for %s", lid_system)
+                        log.warning("Model path not provided for %s when processing %s", lid_system, self.infile)
                         if lid_system == "impresso_langident_pipeline" and not IMPRESSO_LANGIDENT_PIPELINE_AVAILABLE:
-                            log.warning("impresso_pipelines package not available")
+                            log.warning("impresso_pipelines package not available for %s", self.infile)
                         if lid_system == "lingua" and not LINGUA_AVAILABLE:
-                            log.warning("lingua package not available")
+                            log.warning("lingua package not available for %s", self.infile)
                 except Exception as e:
-                    log.error("Failed to load %s model: %s", lid_system, e)
+                    log.error("Failed to load %s model for %s: %s", lid_system, self.infile, e)
             elif lid_system != "langdetect":  # langdetect doesn't need model initialization
-                log.warning("Unknown LID system: %s", lid_system)
+                log.warning("Unknown LID system %s when processing %s", lid_system, self.infile)
                 
         return models
 
@@ -292,7 +309,7 @@ class LanguageIdentifier(object):
         try:
             return avg_langdetect_lid(text, 3, round_ndigits=self.round_ndigits)
         except LangDetectException:
-            log.error("LANGDETECT-ERROR-WITH %s %s", text, sys.exc_info()[0])
+            log.error("LANGDETECT-ERROR for %s with text: %s %s", self.infile, text, sys.exc_info()[0])
             return None
 
     def _apply_langid(self, text: str, model) -> Optional[List[Dict[str, Union[str, float]]]]:
@@ -304,7 +321,7 @@ class LanguageIdentifier(object):
                 "prob": round(lang_prob_orig, self.round_ndigits),
             }]
         except Exception:
-            log.error("LANGID-ERROR-WITH %s", sys.exc_info()[0])
+            log.error("LANGID-ERROR for %s: %s", self.infile, sys.exc_info()[0])
             return None
 
     def _apply_fasttext(self, text: str, model, model_name: str) -> Optional[List[Dict[str, Union[str, float]]]]:
@@ -313,8 +330,8 @@ class LanguageIdentifier(object):
             return fasttext_lid(text, model, round_ndigits=self.round_ndigits)
         except Exception:
             log.error(
-                "%s-ERROR-WITH %s | Input: %s",
-                model_name.upper(), sys.exc_info()[0], text,
+                "%s-ERROR for %s: %s | Input: %s",
+                model_name.upper(), self.infile, sys.exc_info()[0], text,
                 exc_info=True,
             )
             return None
@@ -327,7 +344,7 @@ class LanguageIdentifier(object):
             # probabilites are already rounded in the pipeline
             return result
         except Exception:
-            log.error("IMPRESSO-LANGIDENT-PIPELINE-ERROR-WITH %s", sys.exc_info()[0])
+            log.error("IMPRESSO-LANGIDENT-PIPELINE-ERROR for %s: %s", self.infile, sys.exc_info()[0])
             return None
 
     def _apply_lingua(self, text: str, model) -> Optional[List[Dict[str, Union[str, float]]]]:
@@ -344,7 +361,7 @@ class LanguageIdentifier(object):
             ]
             return result
         except Exception:
-            log.error("LINGUA-ERROR-WITH %s", sys.exc_info()[0])
+            log.error("LINGUA-ERROR for %s: %s", self.infile, sys.exc_info()[0])
             return None
 
     def _perform_language_identification(self, text: str, models: dict, jinfo: dict) -> None:
@@ -366,9 +383,9 @@ class LanguageIdentifier(object):
                 result = model_handlers[lid_system]()
                 jinfo[lid_system] = result
                 if result is None:
-                    log.debug("No result from %s language identifier", lid_system)
+                    log.debug("No result from %s language identifier for %s", lid_system, self.infile)
             else:
-                log.warning("No handler defined for LID system: %s", lid_system)
+                log.warning("No handler defined for LID system %s when processing %s", lid_system, self.infile)
                 jinfo[lid_system] = None
 
     def _create_base_info(self, content_item: dict) -> dict:
@@ -427,6 +444,25 @@ class LanguageIdentifier(object):
             # Log disagreement with document ID and all predictions
             predictions_str = ", ".join([f"{lid}:{lang}" for lid, lang in best_predictions.items()])
             log.info("LANGUAGE-DISAGREEMENT %s: %s", jinfo["id"], predictions_str)
+            self.stats['language_disagreements'] += 1
+
+    def _log_statistics(self):
+        """Log processing statistics."""
+        total = self.stats['processed_items']
+        if total > 0:
+            log.info("STATS-PROCESSED-ITEMS\t%d (100.0%%)", total)
+            log.info("STATS-SKIPPED-NO-TEXT\t%d (%.1f%%)", self.stats['skipped_no_text'], (self.stats['skipped_no_text'] / total) * 100)
+            log.info("STATS-SKIPPED-SHORT-TEXT\t%d (%.1f%%)", self.stats['skipped_short_text'], (self.stats['skipped_short_text'] / total) * 100)
+            log.info("STATS-SKIPPED-LOW-ALPHA\t%d (%.1f%%)", self.stats['skipped_low_alpha'], (self.stats['skipped_low_alpha'] / total) * 100)
+            log.info("STATS-LANGUAGE-IDENTIFIED\t%d (%.1f%%)", self.stats['language_identified'], (self.stats['language_identified'] / total) * 100)
+            log.info("STATS-LANGUAGE-DISAGREEMENTS\t%d (%.1f%%)", self.stats['language_disagreements'], (self.stats['language_disagreements'] / total) * 100)
+        else:
+            log.info("STATS-PROCESSED-ITEMS\t%d", total)
+            log.info("STATS-SKIPPED-NO-TEXT\t%d", self.stats['skipped_no_text'])
+            log.info("STATS-SKIPPED-SHORT-TEXT\t%d", self.stats['skipped_short_text'])
+            log.info("STATS-SKIPPED-LOW-ALPHA\t%d", self.stats['skipped_low_alpha'])
+            log.info("STATS-LANGUAGE-IDENTIFIED\t%d", self.stats['language_identified'])
+            log.info("STATS-LANGUAGE-DISAGREEMENTS\t%d", self.stats['language_disagreements'])
 
     def language_identification(self) -> None:
         """Run multiple language identifications with the models provided and update results."""
@@ -436,16 +472,20 @@ class LanguageIdentifier(object):
             log.debug("WORKING ON %s", content_item['id'])
             
             try:
+                self.stats['processed_items'] += 1
                 jinfo = self._create_base_info(content_item)
                 is_valid, text, alpha_ratio = self._is_text_valid_for_lid(content_item)
                 
                 if not is_valid:
                     if "ft" not in content_item or not isinstance(content_item["ft"], str):
-                        log.info("Skipping %s - no valid text field", content_item['id'])
+                        log.info("Skipping %s from %s - no valid text field", content_item['id'], self.infile)
+                        self.stats['skipped_no_text'] += 1
                     elif len(text) < self.minimal_text_length:
-                        log.info("Skipping %s - insufficient text length", content_item['id'])
+                        log.info("Skipping %s from %s - insufficient text length: %d < %d", content_item['id'], self.infile, len(text), self.minimal_text_length)
+                        self.stats['skipped_short_text'] += 1
                     else:
-                        log.info("Skipping %s - low alphabetical ratio: %s", content_item['id'], alpha_ratio)
+                        log.info("Skipping %s from %s - low alphabetical ratio: %.2f < %.2f", content_item['id'], self.infile, alpha_ratio, self.alphabetical_ratio_threshold)
+                        self.stats['skipped_low_alpha'] += 1
                     
                     self.results.append(jinfo)
                     continue
@@ -457,17 +497,20 @@ class LanguageIdentifier(object):
                 # Check for disagreements between language identifiers
                 self._check_language_disagreements(jinfo)
                 
+                self.stats['language_identified'] += 1
                 self.results.append(jinfo)
                 
             except Exception:
-                log.error("PROBLEM WITH %s %s %s", sys.exc_info(), jinfo, content_item)
+                log.error("PROBLEM processing %s from %s: %s %s %s", content_item.get('id', 'unknown'), self.infile, sys.exc_info(), jinfo, content_item)
                 exit(1)
 
     def write_output(self) -> None:
         """Write results to JSON Lines output file."""
+        log.info("Writing %d results from %s to %s", len(self.results), self.infile, self.outfile)
         with smart_open.open(self.outfile, mode="w", encoding="utf-8") as f_out:
             for r in self.results:
                 f_out.write(json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n")
+        log.info("Successfully wrote output for %s to %s", self.infile, self.outfile)
 
     def next_contentitem(self) -> Iterable[dict]:
         """Yield each content item from the input file."""
