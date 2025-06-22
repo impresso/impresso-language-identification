@@ -1,0 +1,14 @@
+# If you need to use a different shell than /bin/dash, overwrite it here.
+# SHELL := /bin/bash
+
+
+# SETTINGS FOR THE BUILD PROCESS
+
+# Set the number of parallel launches of newspapers (uses xargs)
+# Note: For efficient parallelization the number of cores should be COLLECTION_JOBS * NEWSPAPER_JOBS
+COLLECTION_JOBS ?= 
+  $(call log.debug, COLLECTION_JOBS)
+
+# Set the number of parallel jobs of newspaper-year files to process
+#  $(call log.debug, NEWSPAPER_JOBS)
+#NEWSPAPER_JOBS ?= 1 
