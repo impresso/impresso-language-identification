@@ -91,6 +91,7 @@ class ImpressoLanguageIdentifier(object):
         diagnostics_json: Optional[str],
         validate: bool,
         git_describe: str,
+        alphabetical_ratio_threshold: Optional[float] = None,
     ):
 
         self.git_describe: str = git_describe
@@ -149,6 +150,7 @@ class ImpressoLanguageIdentifier(object):
         self.minimal_lid_probability: float = minimal_lid_probability
         self.minimal_text_length: float = minimal_text_length
         self.minimal_voting_score: float = minimal_voting_score
+        self.alphabetical_ratio_threshold: float = alphabetical_ratio_threshold or 0.0
 
         self.schema: Optional[dict] = None
         self.schema_validator: Optional[jsonschema.validators.Draft6Validator] = None
@@ -249,44 +251,60 @@ class ImpressoLanguageIdentifier(object):
         return result
 
     def get_votes(self, content_item: dict) -> Optional[Counter]:
-        """Return dictionary with weighted votes per language"""
+        """Return dictionary with weighted votes per language.
 
-        # for each language key we have a list of tuples (LID, vote_score)
+        This method calculates the weighted votes for each language based on the predictions
+        from various language identification systems (LIDs). It applies filters for admissible
+        languages, minimal probability thresholds, and boosts votes based on predefined
+        confidence levels.
+
+        :param dict content_item: A dictionary representing a single content item with LID predictions.
+        :return: A Counter object containing the weighted votes for each language.
+        :rtype: Optional[Counter]
+        """
+
+        # Check if alphabetical_ratio is below the threshold
+        if content_item.get("alphabetical_ratio", 1.0) < self.alphabetical_ratio_threshold:
+            return Counter({self.collection_stats["dominant_language"]: 1})
+
+        # Initialize a dictionary to store votes for each language
         votes = defaultdict(list)
 
+        # Iterate over each LID system to collect votes
         for lid in self.lids:
 
-            # filter on LID systems
+            # Check if the LID system has predictions for the content item
             if (
                 lid in content_item
                 and content_item[lid] is not None
                 and len(content_item[lid]) > 0
             ):
                 lang, prob = content_item[lid][0]["lang"], content_item[lid][0]["prob"]
-                # filter on languages
+
+                # Filter predictions based on admissible languages
                 if (
                     self.admissible_languages is None
                     or lang in self.admissible_languages
                 ):
-                    # filter on probability
+
+                    # Filter predictions based on minimal probability threshold
                     if prob >= self.minimal_lid_probability:
                         lang_support = (
                             self.collection_stats["lg_support"][lid].get(lang) or 0.0
                         )
 
-                        # weight vote on trustworthiness of a LID predicting a
-                        # particular language
+                        # Calculate the vote score based on confidence levels
                         if lang_support:
                             vote_score = prob * lang_support
 
-                            # special weight for impresso_ft when predicting
-                            # Luxembourgish
+                            # Apply special weight for impresso_ft predicting Luxembourgish
                             if lid == "impresso_ft" and lang == "lb":
                                 vote_score *= self.weight_lb_impresso_ft
 
+                            # Append the vote score to the list for the language
                             votes[lang].append((lid, vote_score))
 
-        # for each language key we have a score
+        # Aggregate the vote scores for each language
         decision = Counter()
 
         for lang in votes:
@@ -513,6 +531,12 @@ if __name__ == "__main__":
         default="",
         help="git describe output for ingesting version into JSON as version string",
     )
+    parser.add_argument(
+        "--alphabetical-ratio-threshold",
+        default=0.5,
+        type=float,
+        help="threshold for alphabetical ratio below which dominant language is selected (default %(default)s)",
+    )
 
     arguments = parser.parse_args()
 
@@ -542,6 +566,7 @@ if __name__ == "__main__":
         "diagnostics_json",
         "git_describe",
         "validate",
+        "alphabetical_ratio_threshold",
     }
     # launching application ...
     ImpressoLanguageIdentifier(
