@@ -76,12 +76,12 @@ if not LINGUA_AVAILABLE:
     log.warning("Please install it with 'pip install lingua-language-detector' to use this feature.")
 
 
-def alphabetical_ratio(text: str) -> Optional[float]:
+def alphabetical_ratio(text: str) -> float:
     """Return the percentage of alphabetic characters of a text."""
     if not text:
-        return None
+        return 0.0
     filtered_length = len(re.sub(r"[\W_\d]+", "", text))
-    return filtered_length / len(text) if filtered_length else None
+    return filtered_length / len(text) if filtered_length else 0.0
 
 
 def average_distribution(
@@ -415,9 +415,9 @@ class LanguageIdentifier(object):
         if len(text) < self.minimal_text_length:
             return False, text, 0.0
             
-        alpha_ratio = round(alphabetical_ratio(text),2)
-        if alpha_ratio is None or alpha_ratio < self.alphabetical_ratio_threshold:
-            return False, text, alpha_ratio or 0.0
+        alpha_ratio = round(alphabetical_ratio(text), 2)
+        if alpha_ratio < self.alphabetical_ratio_threshold:
+            return False, text, alpha_ratio
             
         return True, text, alpha_ratio
 
