@@ -22,15 +22,16 @@ per content item. Example:
 
 """
 
-__version__ = "2020.12.21"
+__version__ = "2025.06.24"
 
 import datetime
 import json
 import logging
+import time
 from collections import Counter, defaultdict
 from typing import Optional, Set, Iterable
 
-from smart_open import open
+import smart_open
 
 log = logging.getLogger(__name__)
 
@@ -129,8 +130,10 @@ class AggregatorLID:
             "aggregator_lid",
         ]
         self.aggregator_lid: dict = {
-            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(
-                sep="T", timespec="seconds"
+            "ts": (
+                datetime.datetime.now(datetime.timezone.utc).isoformat(
+                    sep="T", timespec="seconds"
+                )
             ),
             "version": git_describe or __version__,
         }
@@ -155,8 +158,9 @@ class AggregatorLID:
 
         if self.boosted_lids != set(boosted_lids):
             log.warning(
-                f"The set of boosted_lids contained the following invalid and ignored system identifiers: "
-                f"{self.boosted_lids.symmetric_difference(boosted_lids)}"
+                "The set of boosted_lids contained the following invalid and ignored"
+                " system identifiers:"
+                f" {self.boosted_lids.symmetric_difference(boosted_lids)}"
             )
 
         self.boost_factor: float = boost_factor
@@ -191,13 +195,29 @@ class AggregatorLID:
 
         self.content_length_stats: Counter = Counter()
 
+        # Add timing and logging attributes like in language_identification.py
+        self.start_time = None
+
     def run(self):
         """Run the application"""
+        self.start_time = time.time()
+
+        log.info(
+            "Starting language statistics aggregation for input files: %s",
+            ", ".join(self.infile),
+        )
+        log.info("Using LID systems: %s", ", ".join(self.lids))
 
         self.collect_statistics()
         self.compute_support()
         json_data = self.jsonify()
         print(json.dumps(json_data))
+
+        # Log compute time
+        total_time = time.time() - self.start_time
+        log.info(
+            "Language statistics aggregation finished in %.2f seconds.", total_time
+        )
 
     def get_next_contentitem(self) -> Iterable[dict]:
         """Yield each content items.
@@ -207,11 +227,12 @@ class AggregatorLID:
 
         """
 
-        for infile in self.infile:
-            with open(infile) as infile:
-                for line in infile:
-                    contentitem = json.loads(line)
-                    yield contentitem
+        for input_file in self.infile:
+            with smart_open.open(input_file, encoding="utf-8") as reader:
+                for line in reader:
+                    if line.strip():
+                        contentitem = json.loads(line)
+                        yield contentitem
 
     def update_lid_distributions(self, content_item: dict) -> None:
         """Update the self.lid_distribution statistics.
@@ -327,7 +348,8 @@ class AggregatorLID:
                 # example of an content item ID: luxzeit1858-1859-01-01-a-i0001
                 self.collection = ci["id"][0 : len(ci["id"]) - 19]
                 log.warning(
-                    f"Inferred collection name from first content item as '{self.collection}'"
+                    "Inferred collection name from first content item as"
+                    f" '{self.collection}'"
                 )
 
             # update content type statistics
@@ -344,7 +366,8 @@ class AggregatorLID:
                 (a_ratio := ci.get("alphabetical_ratio", 0)) < 0.5
             ) or ci_len * a_ratio < self.minimal_text_length:
                 log.debug(
-                    f"Ignore short content item: {ci['id']}\t(length: {ci.get('len', 0)})"
+                    f"Ignore short content item: {ci['id']}\t(length:"
+                    f" {ci.get('len', 0)})"
                 )
                 continue
 
@@ -364,7 +387,8 @@ class AggregatorLID:
                 log.debug(f"Decision taken: lang={lang} score={score}")
                 if len(decision) > 1 and decision.most_common(2)[1][1] == score:
                     log.warning(
-                        f"Ignore decision for {ci['id']} as there is a tie between the two top predicted languages {decision}"
+                        f"Ignore decision for {ci['id']} as there is a tie between the"
+                        f" two top predicted languages {decision}"
                     )
                     lang = None
 
@@ -447,7 +471,26 @@ class AggregatorLID:
         return json_data
 
 
-if __name__ == "__main__":
+def setup_logging(log_level: int, log_file: Optional[str]) -> None:
+    """Configure logging."""
+
+    class SmartFileHandler(logging.FileHandler):
+        def _open(self):
+            return smart_open.open(self.baseFilename, self.mode, encoding="utf-8")
+
+    handlers = [logging.StreamHandler()]
+    if log_file:
+        handlers.append(SmartFileHandler(log_file, mode="w"))
+
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)-15s %(filename)s:%(lineno)d %(levelname)s: %(message)s",
+        handlers=handlers,
+        force=True,
+    )
+
+
+def main():
     import argparse
 
     DESCRIPTION = "Aggregate language-related statistics on content items."
@@ -460,7 +503,10 @@ if __name__ == "__main__":
         default=3,
         type=int,
         metavar="LEVEL",
-        help="set verbosity level: 0=CRITICAL, 1=ERROR, 2=WARNING, 3=INFO 4=DEBUG (default %(default)s)",
+        help=(
+            "set verbosity level: 0=CRITICAL, 1=ERROR, 2=WARNING, 3=INFO 4=DEBUG"
+            " (default %(default)s)"
+        ),
     )
     parser.add_argument(
         "--collection",
@@ -472,7 +518,10 @@ if __name__ == "__main__":
         metavar="n",
         default=200,
         type=int,
-        help="Threshold on article length in chars for computing support (default %(default)s)",
+        help=(
+            "Threshold on article length in chars for computing support (default"
+            " %(default)s)"
+        ),
     )
     parser.add_argument(
         "--boost-factor",
@@ -486,14 +535,19 @@ if __name__ == "__main__":
         metavar="P",
         default=0.25,
         type=float,
-        help="Minimal probability for a LID decision to be considered a vote (default %(default)s)",
+        help=(
+            "Minimal probability for a LID decision to be considered a vote (default"
+            " %(default)s)"
+        ),
     )
     parser.add_argument(
         "--minimal-vote-score",
         metavar="S",
         default=1.5,
         type=float,
-        help="Minimal vote score from ensemble to reach a decision (default %(default)s)",
+        help=(
+            "Minimal vote score from ensemble to reach a decision (default %(default)s)"
+        ),
     )
     parser.add_argument(
         "--round-ndigits",
@@ -504,31 +558,56 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lids",
         nargs="+",
-        default=[],
+        default=[
+            "langdetect",
+            "langid",
+            "impresso_ft",
+            "wp_ft",
+            "impresso_langident_pipeline",
+            "lingua",
+        ],
+        choices=[
+            "langdetect",
+            "langid",
+            "impresso_ft",
+            "wp_ft",
+            "impresso_langident_pipeline",
+            "lingua",
+        ],
         metavar="LID",
-        help="Names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here!",
+        help=(
+            "Names of all LID systems (e.g. langdetect, langid) to use. Do not add"
+            " orig_lg here! (default %(default)s)"
+        ),
     )
     parser.add_argument(
         "--boosted-lids",
         nargs="+",
         default=[],
         metavar="LID",
-        help="Subset of LID systems or orig_lg that are boosted by "
-        "a factor if they have support from any other system or orig_lg.",
+        help=(
+            "Subset of LID systems or orig_lg that are boosted by "
+            "a factor if they have support from any other system or orig_lg."
+        ),
     )
     parser.add_argument(
         "--admissible-languages",
         nargs="+",
         default=None,
         metavar="L",
-        help="Names of languages considered in the ensemble decisions. "
-        "If None, no restrictions are applied (default: %(default)s)",
+        help=(
+            "Names of languages considered in the ensemble decisions. "
+            "If None, no restrictions are applied (default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "--git-describe",
         type=str,
         default="",
-        help="output of git describe command for ingesting git version into JSON as version string",
+        help=(
+            "output of git describe command for ingesting git version into JSON as"
+            " version string"
+        ),
     )
 
     parser.add_argument(
@@ -548,25 +627,29 @@ if __name__ == "__main__":
         logging.INFO,
         logging.DEBUG,
     ]
-    logging.basicConfig(
-        level=log_levels[arguments.verbose],
-        format="%(asctime)-15s %(filename)s:%(lineno)d %(levelname)s: %(message)s",
-    )
-    log.info(f"{arguments}")
+
+    setup_logging(log_levels[arguments.verbose], arguments.logfile)
+
+    log.info("%s", arguments)
+
+    # Extract arguments for AggregatorLID
     aggregator_lid_args = {
-        "infile",
-        "collection",
-        "lids",
-        "boosted_lids",
-        "boost_factor",
-        "minimal_vote_score",
-        "minimal_lid_probability",
-        "minimal_text_length",
-        "round_ndigits",
-        "git_describe",
-        "admissible_languages",
+        "infile": arguments.infile,
+        "collection": arguments.collection,
+        "lids": set(arguments.lids),
+        "boosted_lids": set(arguments.boosted_lids),
+        "boost_factor": arguments.boost_factor,
+        "minimal_vote_score": arguments.minimal_vote_score,
+        "minimal_lid_probability": arguments.minimal_lid_probability,
+        "minimal_text_length": arguments.minimal_text_length,
+        "round_ndigits": arguments.round_ndigits,
+        "admissible_languages": arguments.admissible_languages,
+        "git_describe": arguments.git_describe,
     }
 
-    AggregatorLID(
-        **{k: v for k, v in vars(arguments).items() if k in aggregator_lid_args}
-    ).run()
+    aggregator = AggregatorLID(**aggregator_lid_args)
+    aggregator.run()
+
+
+if __name__ == "__main__":
+    main()
