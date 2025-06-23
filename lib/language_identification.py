@@ -395,10 +395,9 @@ class LanguageIdentifier(object):
             "id": content_item["id"],
             "len": len(content_item.get("ft", "")),
             "orig_lg": content_item.get("lg"),
-            "language_identifier_version": {
-                "version": self.git_describe or __version__,
-                "ts":self.ts,
-            },
+            "ts":self.ts,
+            "langident_stage1_version": self.git_describe or __version__,
+            
         }
 
     def _is_text_valid_for_lid(self, content_item: dict) -> tuple[bool, str, float]:
@@ -445,6 +444,13 @@ class LanguageIdentifier(object):
             predictions_str = ", ".join([f"{lid}:{lang}" for lid, lang in best_predictions.items()])
             log.info("LANGUAGE-DISAGREEMENT %s: %s", jinfo["id"], predictions_str)
             self.stats['language_disagreements'] += 1
+            
+            # Create confusion counter key from sorted unique predicted languages
+            sorted_languages = sorted(unique_predictions)
+            confusion_key = f"LID_DISAGREEMENT_{'_'.join(sorted_languages)}"
+            if confusion_key not in self.stats:
+                self.stats[confusion_key] = 0
+            self.stats[confusion_key] += 1
 
     def _log_statistics(self):
         """Log processing statistics."""
@@ -456,6 +462,12 @@ class LanguageIdentifier(object):
             log.info("STATS-SKIPPED-LOW-ALPHA\t%d (%.1f%%)", self.stats['skipped_low_alpha'], (self.stats['skipped_low_alpha'] / total) * 100)
             log.info("STATS-LANGUAGE-IDENTIFIED\t%d (%.1f%%)", self.stats['language_identified'], (self.stats['language_identified'] / total) * 100)
             log.info("STATS-LANGUAGE-DISAGREEMENTS\t%d (%.1f%%)", self.stats['language_disagreements'], (self.stats['language_disagreements'] / total) * 100)
+            
+            # Log confusion counters
+            confusion_stats = {k: v for k, v in self.stats.items() if k.startswith('LID_DISAGREEMENT_')}
+            for confusion_key in sorted(confusion_stats.keys()):
+                count = confusion_stats[confusion_key]
+                log.info("STATS-%s\t%d (%.1f%%)", confusion_key, count, (count / total) * 100)
         else:
             log.info("STATS-PROCESSED-ITEMS\t%d", total)
             log.info("STATS-SKIPPED-NO-TEXT\t%d", self.stats['skipped_no_text'])
@@ -463,6 +475,12 @@ class LanguageIdentifier(object):
             log.info("STATS-SKIPPED-LOW-ALPHA\t%d", self.stats['skipped_low_alpha'])
             log.info("STATS-LANGUAGE-IDENTIFIED\t%d", self.stats['language_identified'])
             log.info("STATS-LANGUAGE-DISAGREEMENTS\t%d", self.stats['language_disagreements'])
+            
+            # Log confusion counters
+            confusion_stats = {k: v for k, v in self.stats.items() if k.startswith('LID_DISAGREEMENT_')}
+            for confusion_key in sorted(confusion_stats.keys()):
+                count = confusion_stats[confusion_key]
+                log.info("STATS-%s\t%d", confusion_key, count)
 
     def language_identification(self) -> None:
         """Run multiple language identifications with the models provided and update results."""
