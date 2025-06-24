@@ -9,7 +9,7 @@ item and the other with global statistics.
 
 """
 
-__version__ = "2024.04.12"
+__version__ = "2025.06.24"
 
 import copy
 import datetime
@@ -264,7 +264,10 @@ class ImpressoLanguageIdentifier(object):
         """
 
         # Check if alphabetical_ratio is below the threshold
-        if content_item.get("alphabetical_ratio", 1.0) < self.alphabetical_ratio_threshold:
+        if (
+            content_item.get("alphabetical_ratio", 1.0)
+            < self.alphabetical_ratio_threshold
+        ):
             return Counter({self.collection_stats["dominant_language"]: 1})
 
         # Initialize a dictionary to store votes for each language
@@ -337,8 +340,10 @@ class ImpressoLanguageIdentifier(object):
             {
                 "impresso_language_identifier_version": {
                     "version": self.git_describe or __version__,
-                    "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(
-                        sep="T", timespec="seconds"
+                    "ts": (
+                        datetime.datetime.now(datetime.timezone.utc).isoformat(
+                            sep="T", timespec="seconds"
+                        )
                     ),
                 }
             }
@@ -444,7 +449,10 @@ if __name__ == "__main__":
         default=2,
         type=int,
         metavar="LEVEL",
-        help="set verbosity level: 0=CRITICAL, 1=ERROR, 2=WARNING, 3=INFO 4=DEBUG (default %(default)s)",
+        help=(
+            "set verbosity level: 0=CRITICAL, 1=ERROR, 2=WARNING, 3=INFO 4=DEBUG"
+            " (default %(default)s)"
+        ),
     )
     parser.add_argument(
         "-C",
@@ -477,26 +485,38 @@ if __name__ == "__main__":
         metavar="W",
         default=3,
         type=float,
-        help="special voting weight for impresso_ft predicting Luxembourgish (default %(default)s)",
+        help=(
+            "special voting weight for impresso_ft predicting Luxembourgish (default"
+            " %(default)s)"
+        ),
     )
     parser.add_argument(
         "--minimal-lid-probability",
         metavar="P",
         default=0.5,
         type=float,
-        help="minimal probability for a LID decision to be considered a vote (default %(default)s)",
+        help=(
+            "minimal probability for a LID decision to be considered a vote (default"
+            " %(default)s)"
+        ),
     )
     parser.add_argument(
         "--minimal-voting-score",
         metavar="W",
         default=0.5,
         type=float,
-        help="minimal vote score for voting decision to be accepted (default %(default)s)",
+        help=(
+            "minimal vote score for voting decision to be accepted (default"
+            " %(default)s)"
+        ),
     )
     parser.add_argument(
         "--validate",
         action="store_true",
-        help="validate final lang identification JSON against schema (default %(default)s)",
+        help=(
+            "validate final lang identification JSON against schema (default"
+            " %(default)s)"
+        ),
     )
     parser.add_argument(
         "--diagnostics-json",
@@ -508,22 +528,30 @@ if __name__ == "__main__":
         "--minimal-text-length",
         default=20,
         type=int,
-        help="minimal text length of content items to apply automatic language identification (default %(default)s)",
+        help=(
+            "minimal text length of content items to apply automatic language"
+            " identification (default %(default)s)"
+        ),
     )
     parser.add_argument(
         "--lids",
         nargs="+",
         default=[],
         metavar="LID",
-        help="names of all LID systems (e.g. langdetect, langid) to use. Do not add orig_lg here!",
+        help=(
+            "names of all LID systems (e.g. langdetect, langid) to use. Do not add"
+            " orig_lg here!"
+        ),
     )
     parser.add_argument(
         "--admissible-languages",
         nargs="+",
         default=None,
         metavar="L",
-        help="Names of languages considered in the ensemble decisions. "
-        "If None, no restrictions are applied (default: %(default)s)",
+        help=(
+            "Names of languages considered in the ensemble decisions. "
+            "If None, no restrictions are applied (default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "--git-describe",
@@ -535,7 +563,10 @@ if __name__ == "__main__":
         "--alphabetical-ratio-threshold",
         default=0.5,
         type=float,
-        help="threshold for alphabetical ratio below which dominant language is selected (default %(default)s)",
+        help=(
+            "threshold for alphabetical ratio below which dominant language is selected"
+            " (default %(default)s)"
+        ),
     )
 
     arguments = parser.parse_args()

@@ -15,8 +15,8 @@ fasttext = "*"
 numpy = "1.26.*"
 smart-open= {extras = ["s3","http"], version = "==6.4"}
 jsonschema = "*"
-impresso-cookbook = {file = "cookbook/lib"}
 impresso-pipelines = {extras= ["langident"]}
 lingua-language-detector = "*"
+impresso-cookbook = {editable = true, path = "./cookbook/lib",version="1.0.3"}
 [requires]
 python_version = "3.11"
