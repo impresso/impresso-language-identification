@@ -1,11 +1,30 @@
 #!/usr/bin/env python3
 
 """
-Determine the language of a impresso content item given all collected evidence from
-various systems
+Determine the language of an Impresso content item using ensemble decision making.
 
-This script takes two intermediate JSON files as input, one with information per content
-item and the other with global statistics.
+This module implements an ensemble language identification system that combines
+predictions from multiple language identification systems to make final language
+decisions for Impresso newspaper content items.
+
+The script takes two intermediate JSON files as input:
+1. A JSONLines file with language predictions per content item from various LID systems
+2. A JSON file with global statistics and collection-level information
+
+The ensemble decision process includes multiple rules:
+- Unequivocal predictions (all systems agree)
+- Agreement among off-the-shelf LID systems
+- Length-based fallback to dominant collection language
+- Weighted voting with confidence scores
+- Special handling for original language metadata
+
+Example:
+    $ python impresso_ensemble_lid.py \\
+        -i predictions.jsonl \\
+        -o final_decisions.jsonl \\
+        -C collection_stats.json \\
+        --lids langdetect langid impresso_ft \\
+        --validate
 
 """
 
@@ -16,26 +35,36 @@ import datetime
 import json
 import logging
 import sys
+import time
 from collections import Counter, defaultdict
 from typing import DefaultDict, Iterable, List, Optional, Set
 
-import jsonlines
 import jsonschema
 import smart_open
+
+from impresso_cookbook import get_s3_client, get_timestamp
 
 log = logging.getLogger(__name__)
 
 
-def read_json(path: str) -> dict:
-    """Read a JSON file.
+def read_json(path: str, s3_client=None) -> dict:
+    """Read a JSON file from local filesystem or S3.
 
     :param str path: Path to JSON file.
+    :param s3_client: S3 client for reading from S3, if needed.
     :return: Content of the JSON file.
     :rtype: dict
 
     """
+    # Handle S3 transport parameters
+    if path.startswith("s3://"):
+        transport_params = {"client": s3_client} if s3_client else {}
+    else:
+        transport_params = {}
 
-    with smart_open.open(path, "r", encoding="utf-8") as f:
+    with smart_open.open(
+        path, "r", encoding="utf-8", transport_params=transport_params
+    ) as f:
         return json.load(f)
 
 
@@ -96,7 +125,12 @@ class ImpressoLanguageIdentifier(object):
 
         self.git_describe: str = git_describe
 
-        self.diagnostics_json: str = diagnostics_json
+        self.diagnostics_json: Optional[str] = diagnostics_json
+
+        # Add timing and S3 client support
+        self.start_time: Optional[float] = None
+        self.s3_client = get_s3_client()
+        self.ts = get_timestamp()
 
         self.lids: Set[str] = set(lid for lid in lids if lid != "orig_lg")
 
@@ -156,7 +190,9 @@ class ImpressoLanguageIdentifier(object):
         self.schema_validator: Optional[jsonschema.validators.Draft6Validator] = None
         self.stats: DefaultDict[str, Counter] = defaultdict(Counter)
         self.stats_keys: List[str] = ["lg", "orig_lg", "tp", "lg_decision"]
-        self.collection_stats: dict = read_json(collection_stats_filename)
+        self.collection_stats: dict = read_json(
+            collection_stats_filename, self.s3_client
+        )
         self.results: List[dict] = []
 
         self.validate: bool = validate
@@ -164,12 +200,31 @@ class ImpressoLanguageIdentifier(object):
             self.load_schema()
 
     def run(self):
-        """Run the application"""
+        """Run the application.
+
+        This method orchestrates the entire language identification process by:
+        1. Processing all content items and making language decisions
+        2. Writing the results to the output file
+        3. Updating and writing diagnostic statistics
+        """
+
+        self.start_time = time.time()
+
+        log.info("Starting ensemble language identification")
+        log.info("Input file: %s", self.infile)
+        log.info("Output file: %s", self.outfile)
+        log.info("Using LID systems: %s", ", ".join(self.lids))
 
         self.update_impresso_lid_results()
         self.write_output()
         self.update_stats()
         self.write_diagnostics()
+
+        # Log compute time
+        total_time = time.time() - self.start_time
+        log.info(
+            "Ensemble language identification finished in %.2f seconds.", total_time
+        )
 
     def load_schema(self) -> None:
         """
@@ -205,30 +260,80 @@ class ImpressoLanguageIdentifier(object):
         )
 
     def write_output(self) -> None:
-        """Write JSONlines output"""
+        """Write JSONlines output to the specified output file.
 
-        with smart_open.open(self.outfile, mode="w", encoding="utf-8") as of:
-            writer = jsonlines.Writer(of)
-            writer.write_all(self.results)
+        This method writes all processed language identification results to the
+        output file in JSONLines format, where each line contains a complete
+        content item with its final language decision.
+        """
+
+        # Handle S3 transport parameters
+        if self.outfile.startswith("s3://"):
+            transport_params = {"client": self.s3_client}
+        else:
+            transport_params = {}
+
+        with smart_open.open(
+            self.outfile, mode="w", encoding="utf-8", transport_params=transport_params
+        ) as of:
+            for result in self.results:
+                print(json.dumps(result, ensure_ascii=False), file=of)
 
     def write_diagnostics(self) -> None:
-        """Write JSON diagnostics with per-collectio stats"""
+        """Write JSON diagnostics with per-collection stats.
 
-        with smart_open.open(self.diagnostics_json, mode="w", encoding="utf-8") as of:
-            print(json.dumps(self.stats), file=of)
+        This method writes diagnostic information including statistics and metadata
+        about the language identification process to the specified diagnostics file
+        in JSON format.
+        """
+
+        if self.diagnostics_json:
+            # Handle S3 transport parameters
+            if self.diagnostics_json.startswith("s3://"):
+                transport_params = {"client": self.s3_client}
+            else:
+                transport_params = {}
+
+            with smart_open.open(
+                self.diagnostics_json,
+                mode="w",
+                encoding="utf-8",
+                transport_params=transport_params,
+            ) as of:
+                print(json.dumps(self.stats), file=of)
 
     def next_content_item(self) -> Iterable[dict]:
-        """Yield next content item"""
+        """Yield next content item from the input file.
 
-        with smart_open.open(self.infile, mode="r", encoding="utf-8") as reader:
-            json_reader = jsonlines.Reader(reader)
-            for jdata in json_reader:
-                yield jdata
+        This generator function reads the input JSONLines file and yields
+        each content item as a dictionary for processing.
+
+        :return: Iterator over content item dictionaries.
+        :rtype: Iterable[dict]
+        """
+
+        # Handle S3 transport parameters
+        if self.infile.startswith("s3://"):
+            transport_params = {"client": self.s3_client}
+        else:
+            transport_params = {}
+
+        with smart_open.open(
+            self.infile, mode="r", encoding="utf-8", transport_params=transport_params
+        ) as reader:
+            for line in reader:
+                line = line.strip()
+                if line:  # Skip empty lines
+                    yield json.loads(line)
 
     def cleanup_attrs(self, jinfo: dict) -> dict:
-        """Return copy of jinfo with ordered required attributes
+        """Return copy of jinfo with ordered required attributes.
 
-        Attributes with None value that are not required are not copied
+        Attributes with None value that are not required are not copied over.
+
+        :param dict jinfo: Content item dictionary to clean up.
+        :return: Cleaned content item dictionary with ordered attributes.
+        :rtype: dict
         """
         result = {}
         for a in self.attrs_per_content_item:
@@ -240,8 +345,14 @@ class ImpressoLanguageIdentifier(object):
         return result
 
     def get_best_lid(self, jinfo: dict) -> dict:
-        """
-        Use only the top prediction per LID
+        """Extract the top prediction from each LID system.
+
+        For each language identification system, this method extracts only the
+        highest-confidence prediction, discarding any additional predictions.
+
+        :param dict jinfo: Content item dictionary with LID predictions.
+        :return: Dictionary mapping LID system names to their top predictions.
+        :rtype: dict
         """
         result = {}
         for lid_system in self.lids:
@@ -253,12 +364,13 @@ class ImpressoLanguageIdentifier(object):
     def get_votes(self, content_item: dict) -> Optional[Counter]:
         """Return dictionary with weighted votes per language.
 
-        This method calculates the weighted votes for each language based on the predictions
-        from various language identification systems (LIDs). It applies filters for admissible
-        languages, minimal probability thresholds, and boosts votes based on predefined
-        confidence levels.
+        This method calculates the weighted votes for each language based on the
+        predictions from various language identification systems (LIDs). It applies
+        filters for admissible languages, minimal probability thresholds, and boosts
+        votes based on predefined confidence levels.
 
-        :param dict content_item: A dictionary representing a single content item with LID predictions.
+        :param dict content_item: A dictionary representing a single content item
+            with LID predictions.
         :return: A Counter object containing the weighted votes for each language.
         :rtype: Optional[Counter]
         """
@@ -316,14 +428,28 @@ class ImpressoLanguageIdentifier(object):
         return decision
 
     def update_impresso_lid_results(self) -> None:
-        """Update self.results with all language classification decisions"""
+        """Update self.results with all language classification decisions.
+
+        This method processes each content item from the input file and makes
+        language identification decisions, storing the results in self.results.
+        """
 
         for c in self.next_content_item():
             log.info(f"Processing {c['id']}")
             self.results.append(self.decide_lg(c))
 
     def decide_lg(self, content_item: dict) -> dict:
-        """Return a dict with decision information for a content item"""
+        """Return a dict with decision information for a content item.
+
+        This method applies the ensemble decision rules to determine the final
+        language for a content item. It handles various scenarios including
+        image content, unequivocal predictions, length-based decisions, and
+        weighted voting.
+
+        :param dict content_item: Content item with language predictions.
+        :return: Content item with final language decision and metadata.
+        :rtype: dict
+        """
 
         decided_content_item = {}
 
@@ -426,12 +552,36 @@ class ImpressoLanguageIdentifier(object):
         return self.cleanup_attrs(decided_content_item)
 
     def update_stats(self) -> None:
-        """Update per-collection statistics for diagnostics"""
+        """Update per-collection statistics for diagnostics.
+
+        This method processes the results to compute statistics about language
+        identification decisions per collection and year, which are used for
+        diagnostic purposes and quality assessment.
+        """
 
         for r in self.results:
             for p in self.stats_keys:
                 self.stats[p][r.get(p)] += 1
             self.stats["N"][f'{self.collection_stats["collection"]}-{r["year"]}'] += 1
+
+
+def setup_logging(log_level: int, log_file: Optional[str]) -> None:
+    """Configure logging."""
+
+    class SmartFileHandler(logging.FileHandler):
+        def _open(self):
+            return smart_open.open(self.baseFilename, self.mode, encoding="utf-8")
+
+    handlers = [logging.StreamHandler()]
+    if log_file:
+        handlers.append(SmartFileHandler(log_file, mode="w"))
+
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)-15s %(filename)s:%(lineno)d %(levelname)s: %(message)s",
+        handlers=handlers,
+        force=True,
+    )
 
 
 if __name__ == "__main__":
@@ -458,7 +608,8 @@ if __name__ == "__main__":
         "-C",
         "--collection-stats-filename",
         type=str,
-        help="collection statistics JSON file (default %(default)s)",
+        required=True,
+        help="collection statistics JSON file",
     )
 
     parser.add_argument(
@@ -471,13 +622,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "-i",
         "--infile",
-        default="/dev/stdin",
+        required=True,
         help="path to input file from s3 batch, json format",
     )
     parser.add_argument(
         "-o",
         "--outfile",
-        default="/dev/stdout",
+        required=True,
         help="path to folder where processed .json files should be saved",
     )
     parser.add_argument(
@@ -578,28 +729,25 @@ if __name__ == "__main__":
         logging.INFO,
         logging.DEBUG,
     ]
-    logging.basicConfig(
-        level=log_levels[arguments.verbose],
-        format="%(asctime)-15s %(filename)s:%(lineno)d %(levelname)s: %(message)s",
-    )
+
+    setup_logging(log_levels[arguments.verbose], arguments.logfile)
+
     log.info(f"{arguments}")
-    language_identifier_args = {
-        "infile",
-        "outfile",
-        "collection_stats_filename",
-        "lids",
-        "weight_lb_impresso_ft",
-        "minimal_lid_probability",
-        "minimal_text_length",
-        "threshold_confidence_orig_lg",
-        "minimal_voting_score",
-        "admissible_languages",
-        "diagnostics_json",
-        "git_describe",
-        "validate",
-        "alphabetical_ratio_threshold",
-    }
-    # launching application ...
+
+    # Create ImpressoLanguageIdentifier instance
     ImpressoLanguageIdentifier(
-        **{k: v for k, v in vars(arguments).items() if k in language_identifier_args}
+        infile=arguments.infile,
+        outfile=arguments.outfile,
+        collection_stats_filename=arguments.collection_stats_filename,
+        lids=set(arguments.lids),
+        weight_lb_impresso_ft=arguments.weight_lb_impresso_ft,
+        minimal_lid_probability=arguments.minimal_lid_probability,
+        minimal_text_length=arguments.minimal_text_length,
+        threshold_confidence_orig_lg=arguments.threshold_confidence_orig_lg,
+        minimal_voting_score=arguments.minimal_voting_score,
+        admissible_languages=arguments.admissible_languages,
+        diagnostics_json=arguments.diagnostics_json,
+        git_describe=arguments.git_describe,
+        validate=arguments.validate,
+        alphabetical_ratio_threshold=arguments.alphabetical_ratio_threshold,
     ).run()
