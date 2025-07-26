@@ -139,6 +139,7 @@ class ImpressoLanguageIdentifier(object):
                 },
                 {"key": "year", "required": False},
                 {"key": "newspaper", "required": False},
+                {"key": "ts", "required": False},
             ]
             + [
                 {"key": k, "required": False, "source": "language_identifier"}
@@ -163,7 +164,7 @@ class ImpressoLanguageIdentifier(object):
 
         self.threshold_confidence_orig_lg: float = threshold_confidence_orig_lg
         self.minimal_lid_probability: float = minimal_lid_probability
-        self.minimal_text_length: float = minimal_text_length
+        self.minimal_text_length: int = minimal_text_length
         self.minimal_voting_score: float = minimal_voting_score
         self.alphabetical_ratio_threshold: float = alphabetical_ratio_threshold or 0.0
         self.dominant_language_threshold: float = dominant_language_threshold or 0.90
@@ -342,7 +343,7 @@ class ImpressoLanguageIdentifier(object):
                 result[lid_system] = lid_preds[0]
         return result
 
-    def get_votes(self, content_item: dict) -> Optional[Counter]:
+    def get_votes(self, content_item: dict) -> Counter:
         """Return dictionary with weighted votes per language.
 
         This method calculates the weighted votes for each language based on the
@@ -353,7 +354,7 @@ class ImpressoLanguageIdentifier(object):
         :param dict content_item: A dictionary representing a single content item
             with LID predictions.
         :return: A Counter object containing the weighted votes for each language.
-        :rtype: Optional[Counter]
+        :rtype: Counter
         """
 
         # Check if alphabetical_ratio is below the threshold
@@ -524,7 +525,7 @@ class ImpressoLanguageIdentifier(object):
                 )
 
         # Aggregate the vote scores for each language
-        decision = Counter()
+        decision: Counter[str] = Counter()
 
         for lang in votes:
             total_score = sum(vote_score for (_, vote_score) in votes[lang])
@@ -580,10 +581,12 @@ class ImpressoLanguageIdentifier(object):
             if d.get("source") == "language_identifier":
                 decided_content_item[d["key"]] = copy.copy(content_item.get(d["key"]))
 
-        decided_content_item["newspaper"] = decided_content_item["id"][
-            0 : len(decided_content_item["id"]) - 19
-        ]
-        decided_content_item["year"] = decided_content_item["id"][-18:-14]
+        content_id = decided_content_item.get("id")
+        decided_content_item["newspaper"] = (
+            content_id[0 : len(content_id) - 19] if content_id else ""
+        )
+        decided_content_item["year"] = content_id[-18:-14] if content_id else ""
+        decided_content_item["ts"] = self.ts
         decided_content_item.update(
             {
                 "impresso_language_identifier_version": {
@@ -739,13 +742,14 @@ class ImpressoLanguageIdentifier(object):
                 )
 
         # rule 2c: set dominant language of newspaper for very short articles
-        if decided_content_item["len"] < self.minimal_text_length:
+        text_len = decided_content_item.get("len", 0)
+        if text_len and text_len < self.minimal_text_length:
             log.debug(
                 "Content item %s: Rule 2c - Text too short"
                 " (%s < %s), using"
                 " dominant language: %s",
                 content_item["id"],
-                decided_content_item["len"],
+                text_len,
                 self.minimal_text_length,
                 dominant_lg,
             )
