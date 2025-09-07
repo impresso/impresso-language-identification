@@ -44,16 +44,28 @@ underlying the Impresso interface and the downstream processing.
 ## Prerequisites
 
 The build process has been tested on modern Linux and macOS systems and requires
-Python 3.11. Under Debian, make sure to have the following packages installed:
+Python 3.11. The project now uses the **Impresso Make-Based Cookbook** for
+streamlined processing workflows.
+
+### System Dependencies
+
+Under Debian/Ubuntu, install the following packages:
 
 ```sh
 $ # install python3.11 according to your OS
-$ sudo apt install git git-lfs make moreutils  # needed for building
-$ sudo apt rclone  # needed for uploading to s3
-$ sudo apt jq  # needed for computing statistics
+$ sudo apt install git git-lfs make moreutils parallel  # needed for building
+$ sudo apt install rclone  # needed for S3 synchronization
+$ sudo apt install jq  # needed for computing statistics
 ```
 
-This repository uses `pipenv`.
+On macOS:
+
+```sh
+$ brew install git git-lfs make coreutils parallel
+$ brew install rclone jq
+```
+
+### Installation
 
 ```sh
 $ git clone --recursive https://github.com/impresso/impresso-language-identification.git
@@ -63,42 +75,117 @@ $ python3.11 -mpipenv install
 $ python3.11 -mpipenv shell
 ```
 
-For processing, you have to provide a symbolic link called `rebuilt-data` inside
-the repository that resolves into the impresso rebuilt data set. Alternatively,
-you can set the environment variable before running the build commands from the
-next section. The folder `test/rebuilt-data` contains some test data to play
-with.
+### Configuration
+
+Create a `.env` file in the project root with your S3 credentials:
 
 ```sh
-export IMPRESSO_REBUILT_DATA_DIR=/PATH/TO/DIRECTORY
+SE_ACCESS_KEY=your_access_key
+SE_SECRET_KEY=your_secret_key
+SE_HOST_URL=https://os.zhdk.cloud.switch.ch/
 ```
 
-## Stage 1a: Automatic Language Identification
+Set up the environment:
 
-We first apply several off-the-shelve LID classifiers and our model to the
+```sh
+$ make setup
+$ make create-aws-config
+$ make test-aws
+```
+
+The cookbook automatically handles data synchronization from S3, eliminating the
+need for manual symbolic links or environment variables for data directories.
+
+## Quick Start
+
+For most users, the simplest approach is:
+
+```sh
+# Setup (one-time)
+make setup
+
+# Process a single newspaper
+make newspaper NEWSPAPER=gazette-de-lausanne
+
+# Process entire collection (parallel)
+make collection
+```
+
+## Detailed Processing Pipeline
+
+### Stage 1a: Automatic Language Identification
+
+We first apply several off-the-shelf LID classifiers and our model to the
 texts. The corresponding build command is:
 
 ```sh
-make impresso-lid-stage1a-target
+make langident-target
 ```
 
-This step produces a JSON file per year per collection. As this takes a lot of
-time, you may want to parallelize the process using multiple machines that work
-on the same shared files. To avoid redundant operations and overwriting of
-files, the Makefile implements a file lock mechanism.
+This command runs all three stages (1a, 1b, and 2) in sequence. To run individual stages:
 
-Properties of standard LID tools used in impresso:
+```sh
+make impresso-lid-stage1a-target  # Initial LID predictions only
+make impresso-lid-stage1b-target  # Collection statistics only
+make impresso-lid-stage2-target   # Final ensemble decisions only
+```
 
-- `langid` LID (recognizes many language, incl. `lb`):
-  [https://github.com/saffsd/langid.py]()
-- `langdetect` LID (recognizes many languages, except `lb`):
-  [https://github.com/Mimino666/langdetect]()
-- `wp_ft` wikipedia model delivered by fasttext (recognizes many languages,
-  incl. `lb`): [https://fasttext.cc/docs/en/language-identification.html]()
-- `impresso_ft` impresso model based on fasttext (recognizes exactly
-  `fr/de/lb/en/it`)
+### Available Language Identification Systems
 
-## Stage 1b: Aggregating collection statistics on language
+The pipeline supports multiple language identification systems that can be configured
+via the `LANGIDENT_LID_SYSTEMS_OPTION` variable:
+
+```sh
+# Use all available systems (default) - recommended for production
+make langident-target LANGIDENT_LID_SYSTEMS_OPTION="langid impresso_ft wp_ft impresso_langident_pipeline lingua"
+
+# Use only FastText-based systems - faster processing, good for major languages
+make langident-target LANGIDENT_LID_SYSTEMS_OPTION="impresso_ft wp_ft"
+
+# Include langdetect for additional coverage - use when Luxembourgish is not expected
+make langident-target LANGIDENT_LID_SYSTEMS_OPTION="langid langdetect impresso_ft wp_ft lingua"
+```
+
+**Recommendation**: Use the default configuration unless you have specific performance constraints or know that certain languages are not present in your data.
+
+For processing a single newspaper:
+
+```sh
+make newspaper NEWSPAPER=gazette-de-lausanne
+```
+
+This step produces a JSON file per year per collection. The cookbook automatically
+handles file synchronization and conflict resolution for distributed processing
+across multiple machines.
+
+### Properties of Language Identification Tools
+
+The pipeline uses several language identification systems, each with different strengths and designed for different text types:
+
+- **`langid`** - Original langid.py library trained on web texts (supports 97 languages including Luxembourgish):  
+  [https://github.com/saffsd/langid.py](https://github.com/saffsd/langid.py)
+- **`langdetect`** - Python port of Google's language-detection library (supports 55 languages, but not Luxembourgish):  
+  [https://github.com/Mimino666/langdetect](https://github.com/Mimino666/langdetect)  
+  **Note: Available but not used by default due to lack of Luxembourgish support**
+- **`wp_ft`** - Wikipedia FastText model trained on Wikipedia articles (supports 176 languages including Luxembourgish):  
+  [https://fasttext.cc/docs/en/language-identification.html](https://fasttext.cc/docs/en/language-identification.html)
+- **`impresso_ft`** - Custom FastText model trained specifically on ~2000 historical newspaper content items from the Impresso collection where original language metadata differed from other LID predictions (recognizes exactly `fr/de/lb/en/it`)
+- **`impresso_langident_pipeline`** - Impresso-specific pipeline that combines multiple approaches, from the impresso-pipelines package
+- **`lingua`** - Rule-based language detector using n-gram frequency statistics (supports 75 languages including Luxembourgish):  
+  [https://github.com/pemistahl/lingua-py](https://github.com/pemistahl/lingua-py)
+
+### Why Multiple Systems?
+
+Historical newspapers present unique challenges that no single language identification system handles perfectly:
+
+- **OCR noise**: Misrecognized characters from historical fonts confuse modern LID systems
+- **Mixed content**: Articles may contain foreign names, quotes, or advertisements in different languages
+- **Historical spelling**: Older spelling conventions differ from contemporary training data
+- **Domain specificity**: News content differs from web texts or Wikipedia articles used to train general LID systems
+
+By combining multiple systems and using ensemble voting, we can leverage the strengths of each approach while mitigating individual weaknesses.
+
+### Stage 1b: Aggregating collection statistics on language
 
 Given the incomplete and sometimes unreliable metadata regarding the content
 items' language, we aggregate statistics per collection to assess the confidence
@@ -114,7 +201,8 @@ statistics per collection according to the following rules:
 - If external metadata is available (called `orig_lg` henceforth), it also
   counts as a LID prediction.
 - If the `impresso_ft` or the `orig_lg` vote has support from at least another
-  LID model, their votes are boosted by 1.5.
+  LID model, their votes are boosted by 1.5 (this boost factor was chosen to give
+  additional weight to systems with known reliability on historical content).
 - The language with the most votes wins and is counted. In case of a tie, we
   don't count for a specific language.
 
@@ -130,13 +218,13 @@ content item in stage 2.
 To perform this stage, run the following command:
 
 ```sh
-make impresso-lid-stage1-target
+make impresso-lid-stage1b-target
 ```
 
-This command can only be run after stage 1a has been completely built. It cannot
-be run at the same time via different machines.
+This command can only be run after stage 1a has been completed. It processes
+the aggregated statistics for the entire collection and must be run sequentially.
 
-## Stage 2: Deciding the language per content item
+### Stage 2: Deciding the language per content item
 
 Given the output from various LID systems and the original language information,
 we finally decide the language of an article according to the following rules:
@@ -153,18 +241,18 @@ we finally decide the language of an article according to the following rules:
   `fr`, `en` or `it`, and if the language has been selected by the ensemble in
   stage 1b at least once, and if there are at least as many letter characters
   as the minimal text length specifies, accept this other language. This rule
-  typically applies for `la`, or other rare languages. `lb` is exempt because
-  not all LID systems can recognize `lb`. Decision code: `all-but-impresso_ft`.
+  typically applies for `la`, or other rare languages. Note that while multiple
+  systems now support `lb` (Luxembourgish), this rule handles cases where
+  `impresso_ft` might disagree due to its specialized training. Decision code: `all-but-impresso_ft`.
 
 - If the text is shorter than 50 characters, we choose the dominant language of
   the newspaper. Decision code: `dominant-by-len`.
 
 - Only if no decision could be made, an ensemble voting is performed. We apply
   a similar voting technique as in the global statistics step of stage 1b in
-  which the votes are weighed based on their confidence. As the `impresso_ft`
-  is the only reliable system for predicting Luxembourgish, it has the power to
-  overrule other predictions with an additional vote weighting factor of `6`
-  when predicting `lb`.
+  which the votes are weighed based on their confidence. The `impresso_ft`
+  system receives additional weighting when predicting Luxembourgish (`lb`) due
+  to its specialized training on historical newspaper content.
 
   - If the sum of all votes is below the threshold of `0.5`, we simply choose
     the dominant language of the newspaper. Decision code:
@@ -178,7 +266,7 @@ To perform this stage, run the following command:
 make impresso-lid-stage2-target
 ```
 
-The process of stage 1b and 2 is fast and cannot be run on different machines.
+The process of stage 1b and 2 is relatively fast compared to stage 1a since it processes the already-computed predictions rather than running the language identification models on raw text.
 
 ## Preparing the data release
 
@@ -202,22 +290,77 @@ make impresso-lid-upload-release-to-s3
 
 ## Creating LID statistics
 
-During stage 2 for each per-year collection output, diagnostics files in JSON
-format are produced that aggregate the information from the individual content
-item files.
+During stage 2, diagnostics files in JSON format are produced for each collection
+that aggregate information from the individual content item files. These statistics
+can be aggregated across the entire collection:
 
 ```sh
-make impresso-lid-statistics
+make aggregate-langident
 ```
 
 ## Parallelization
 
-To run the full LID process on a single machine with N cores, run:
+The cookbook provides sophisticated parallelization options for efficient processing:
+
+### Parallel Processing Configuration
+
+The build system automatically detects CPU cores and configures optimal parallel processing:
+
+- `NPROC`: Automatically detected number of CPU cores
+- `COLLECTION_JOBS`: Number of newspapers to process in parallel (default: 2)
+- `NEWSPAPER_JOBS`: Number of parallel jobs per newspaper (auto-calculated)
+- `MAX_LOAD`: Maximum system load average for job scheduling
+
+### Performance Tuning Guidelines
+
+- **For CPU-bound tasks**: Set `COLLECTION_JOBS ≤ NPROC`
+- **For I/O-bound tasks**: `COLLECTION_JOBS` can exceed `NPROC`
+- **High memory usage**: Reduce `COLLECTION_JOBS`
+- **System lag**: Reduce `MAX_LOAD` to 70-80% of `NPROC`
+
+### Usage Examples
 
 ```sh
-make impresso-lid -j N
+# Process full collection with optimal parallelization
+make collection
+
+# Process with custom parallel settings
+make collection COLLECTION_JOBS=4 MAX_LOAD=8
+
+# Process single newspaper with maximum internal parallelism
+make newspaper NEWSPAPER=gazette-de-lausanne NEWSPAPER_JOBS=8
+
+# Override CPU detection for resource limiting
+make collection NPROC=16 COLLECTION_JOBS=8
 ```
 
-Because the step 1a is taking a lot of time for millions of content items, it is
-recommended to build in parallel on several machines that can access the same
-storage.
+### Monitoring Progress
+
+```sh
+# Monitor collection processing progress
+tail -f build/collection.joblog
+
+# Monitor system resources
+htop -u $USER
+
+# Monitor I/O performance
+iostat -x 5
+```
+
+### Distributed Processing
+
+The cookbook supports distributed processing across multiple machines:
+
+- All data is stored on S3 for shared access
+- Local stamp files track progress without conflicts
+- Machines can join or leave processing without coordination
+- Results are validated and uploaded with integrity checks
+
+To run the full LID process on a single machine with N cores:
+
+```sh
+make collection COLLECTION_JOBS=N
+```
+
+For distributed processing across multiple machines, simply run the same command
+on each machine - the cookbook automatically coordinates work distribution.

@@ -93,3 +93,43 @@ include cookbook/local_to_s3.mk
 
 # FURTHER ADDONS
 include cookbook/aggregators_langident.mk
+
+
+
+# Add help target with parallelization documentation
+help::
+	@echo ""
+	@echo "PARALLELIZATION CONFIGURATION:"
+	@echo "  COLLECTION_JOBS   #  Number of newspapers to process in parallel (default: 2)"
+	@echo "                    #  Higher values increase parallelism but consume more memory"
+	@echo "                    #  Recommended: 2-8 depending on available RAM and CPU cores"
+	@echo ""
+	@echo "  NEWSPAPER_JOBS    #  Number of parallel jobs per newspaper (default: NPROC/COLLECTION_JOBS)"
+	@echo "                    #  Controls fine-grained parallelism within each newspaper"
+	@echo "                    #  Auto-calculated to balance with COLLECTION_JOBS"
+	@echo ""
+	@echo "  MAX_LOAD          #  Maximum system load average (default: NPROC)"
+	@echo "                    #  Prevents system overload by limiting concurrent processes"
+	@echo "                    #  Set lower if system becomes unresponsive"
+	@echo ""
+	@echo "  NPROC             #  Number of CPU cores (auto-detected)"
+	@echo "                    #  Override if auto-detection fails or for resource limiting"
+	@echo ""
+	@echo "PERFORMANCE TUNING:"
+	@echo "  • For CPU-bound tasks: COLLECTION_JOBS ≤ NPROC"
+	@echo "  • For I/O-bound tasks: COLLECTION_JOBS can exceed NPROC"
+	@echo "  • High memory usage: Reduce COLLECTION_JOBS"
+	@echo "  • System lag: Reduce MAX_LOAD to 70-80% of NPROC"
+	@echo ""
+	@echo "EXAMPLES:"
+	@echo "  make collection COLLECTION_JOBS=4          # Process 4 newspapers in parallel"
+	@echo "  make collection COLLECTION_JOBS=1 NEWSPAPER_JOBS=8  # Single newspaper, max internal parallelism"
+	@echo "  make all MAX_LOAD=8                        # Limit system load to 8"
+	@echo "  make newspaper NEWSPAPER_JOBS=4            # Use 4 jobs for single newspaper"
+	@echo "  make collection NPROC=16 COLLECTION_JOBS=8 # Override CPU count and use 8 parallel newspapers"
+	@echo ""
+	@echo "MONITORING:"
+	@echo "  tail -f build/collection.joblog            # Monitor collection progress"
+	@echo "  htop -u ${USER}                            # Monitor system resources"
+	@echo "  iostat -x 5                                # Monitor I/O performance"
+	@echo ""
