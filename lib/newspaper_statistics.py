@@ -213,6 +213,7 @@ class AggregatorLID:
             "orig_lg_ensemble_disagreements",
             "orig_lg_total_decisions",
             # administrative information
+            "ts",  # Add timestamp at top level
             "aggregator_lid",
         ]
         self.output = (
