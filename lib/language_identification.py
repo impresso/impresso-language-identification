@@ -735,7 +735,7 @@ def main():
     import argparse
 
     DESCRIPTION = (
-        "Identify languages andtheir probabilities with different LID systems."
+        "Identify languages and their probabilities with different LID systems."
     )
 
     EPILOG = (
