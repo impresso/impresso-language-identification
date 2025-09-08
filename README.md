@@ -105,7 +105,7 @@ For most users, the simplest approach is:
 make setup
 
 # Process a single newspaper
-make newspaper NEWSPAPER=gazette-de-lausanne
+make newspaper NEWSPAPER=actionfem
 
 # Process entire collection (parallel)
 make collection
@@ -151,7 +151,7 @@ make langident-target LANGIDENT_LID_SYSTEMS_OPTION="langid langdetect impresso_f
 For processing a single newspaper:
 
 ```sh
-make newspaper NEWSPAPER=gazette-de-lausanne
+make newspaper NEWSPAPER=actionfem
 ```
 
 This step produces a JSON file per year per collection. The cookbook automatically
@@ -328,7 +328,7 @@ make collection
 make collection COLLECTION_JOBS=4 MAX_LOAD=8
 
 # Process single newspaper with maximum internal parallelism
-make newspaper NEWSPAPER=gazette-de-lausanne NEWSPAPER_JOBS=8
+make newspaper NEWSPAPER=actionfem NEWSPAPER_JOBS=8
 
 # Override CPU detection for resource limiting
 make collection NPROC=16 COLLECTION_JOBS=8
