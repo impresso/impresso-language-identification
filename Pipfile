@@ -6,11 +6,16 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-jsonlines = "*"
+python-dotenv = "*"
+boto3 = "==1.35.95"
 langid = "*"
 langdetect = "*"
 fasttext = "*"
+numpy = "1.26.*"
 smart-open= {extras = ["s3","http"], version = "==6.4"}
+impresso-pipelines = {extras= ["langident"]}
+lingua-language-detector = "*"
+impresso-cookbook = {editable = true, path = "./cookbook/lib",version="1.0.3"}
 jsonschema = "*"
 
 [requires]
