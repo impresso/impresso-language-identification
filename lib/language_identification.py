@@ -781,7 +781,7 @@ def main():
         metavar="LID",
         help=(
             "names of all LID systems (e.g. langdetect, langid) to use. Do not add"
-            " orig_lg here! %(default)s)"
+            " orig_lg here! %(default)s"
         ),
     )
 
