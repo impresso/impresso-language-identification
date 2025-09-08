@@ -155,8 +155,7 @@ def avg_langdetect_lid(
     langdetect.DetectorFactory.seed = seed
 
     results = []
-    lower = text.lower()
-    text = lower  # add lower case text to increase detection probability
+    text = text.lower()  # add lower case text to increase detection probability
     for i in range(n):
         langdetect.DetectorFactory.seed += i
         result = langdetect.detect_langs(text)
